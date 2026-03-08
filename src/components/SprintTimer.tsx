@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useSprintTimer } from '../hooks/useSprintTimer';
-import { Play, Pause, RotateCcw, CheckCircle, AlertTriangle, BellRing } from 'lucide-react';
+import { useSprintArchive } from '../hooks/useSprintArchive';
+import { Play, Pause, RotateCcw, CheckCircle, AlertTriangle, BellRing, Loader2 } from 'lucide-react';
 import { Button } from './ui/Button';
+import { useScrum } from '../context/ScrumContext';
 
 const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -25,9 +27,12 @@ export function SprintTimer() {
         startSprint,
         pauseSprint,
         resumeSprint,
-        completeSprint,
+        completeSprint: storeCompleteSprint,
         resetSprint
     } = useSprintTimer();
+
+    const { archiveSprint, isArchiving } = useSprintArchive();
+    const { refresh } = useScrum();
 
     const [notification, setNotification] = useState<string | null>(null);
     const [dismissedTimeUp, setDismissedTimeUp] = useState(false);
@@ -51,6 +56,17 @@ export function SprintTimer() {
     const handleStart = () => {
         setDismissedTimeUp(false);
         startSprint();
+    };
+
+    const handleComplete = async () => {
+        if (status === 'RUNNING' || status === 'PAUSED' || status === 'TIME_UP') {
+            const startedAt = Date.now() - (durationMs - remainingTimeMs);
+            const success = await archiveSprint(startedAt, Date.now(), durationMs);
+            if (success) {
+                await storeCompleteSprint();
+                await refresh();
+            }
+        }
     };
 
     const handleReset = () => {
@@ -77,10 +93,10 @@ export function SprintTimer() {
                 />
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between">
+            <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between">
                 <div className="flex items-center gap-6">
                     <div className="flex flex-col">
-                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">Sprint Timer</span>
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">スプリントタイマー</span>
                         <div className={`font-mono text-xl font-bold tracking-tight tabular-nums ${isLate ? 'text-red-600' : 'text-gray-900'}`}>
                             {formatTime(remainingTimeMs)}
                         </div>
@@ -90,35 +106,35 @@ export function SprintTimer() {
                         {status === 'NOT_STARTED' && (
                             <Button onClick={handleStart} size="sm" className="bg-blue-600 hover:bg-blue-700 h-8">
                                 <Play size={14} className="mr-1.5" />
-                                Start Sprint
+                                スプリント開始
                             </Button>
                         )}
 
                         {status === 'RUNNING' && (
                             <Button onClick={pauseSprint} size="sm" variant="secondary" className="bg-orange-50 text-orange-700 hover:bg-orange-100 border-orange-200 h-8">
                                 <Pause size={14} className="mr-1.5" />
-                                Pause
+                                一時停止
                             </Button>
                         )}
 
                         {status === 'PAUSED' && (
                             <Button onClick={resumeSprint} size="sm" className="bg-blue-600 hover:bg-blue-700 h-8">
                                 <Play size={14} className="mr-1.5" />
-                                Resume
+                                再開
                             </Button>
                         )}
 
                         {(status === 'RUNNING' || status === 'PAUSED') && (
-                            <Button onClick={completeSprint} size="sm" className="bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white h-8">
-                                <CheckCircle size={14} className="mr-1.5" />
-                                Complete
+                            <Button onClick={handleComplete} disabled={isArchiving} size="sm" className="bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white h-8">
+                                {isArchiving ? <Loader2 size={14} className="mr-1.5 animate-spin" /> : <CheckCircle size={14} className="mr-1.5" />}
+                                完了にする
                             </Button>
                         )}
 
                         {(status === 'COMPLETED' || status === 'TIME_UP') && (
                             <Button onClick={handleReset} size="sm" variant="secondary" className="h-8">
                                 <RotateCcw size={14} className="mr-1.5" />
-                                Reset Timer
+                                タイマーリセット
                             </Button>
                         )}
                     </div>
@@ -128,13 +144,13 @@ export function SprintTimer() {
                     {status === 'TIME_UP' && (
                         <div className="flex items-center text-red-600 text-sm font-semibold bg-red-50 px-3 py-1.5 rounded-md border border-red-100">
                             <AlertTriangle size={16} className="mr-1.5" />
-                            Time is up! Sprint ended.
+                            時間は終了しました！スプリント完了処理を行ってください。
                         </div>
                     )}
                     {status === 'COMPLETED' && (
                         <div className="flex items-center text-emerald-600 text-sm font-semibold bg-emerald-50 px-3 py-1.5 rounded-md border border-emerald-100">
                             <CheckCircle size={16} className="mr-1.5" />
-                            Sprint completed early!
+                            スプリントが完了しました！
                         </div>
                     )}
                 </div>
@@ -147,7 +163,7 @@ export function SprintTimer() {
                         <BellRing size={20} className="animate-pulse" />
                     </div>
                     <div>
-                        <h4 className="font-bold text-gray-900 text-sm">Daily Scrum (Mini-Retro)</h4>
+                        <h4 className="font-bold text-gray-900 text-sm">デイリースクラム (Mini-Retro)</h4>
                         <p className="text-gray-600 text-sm mt-1">{notification}</p>
                     </div>
                 </div>
@@ -160,14 +176,19 @@ export function SprintTimer() {
                         <div className="mx-auto bg-red-100 w-20 h-20 rounded-full flex items-center justify-center mb-6">
                             <AlertTriangle size={40} className="text-red-600" />
                         </div>
-                        <h2 className="text-3xl font-black text-gray-900 mb-3 tracking-tight">Time's Up!</h2>
+                        <h2 className="text-3xl font-black text-gray-900 mb-3 tracking-tight">時間終了！</h2>
                         <p className="text-gray-600 mb-8 leading-relaxed">
-                            The 8-hour sprint has automatically ended. Please complete any closing tasks and review your sprint progress.
+                            8時間のスプリントが終了しました。残りのタスクを整理し、スプリントを完了してください。
                         </p>
-                        <Button onClick={() => setDismissedTimeUp(true)} className="w-full h-11 text-base relative overflow-hidden group">
-                            <span className="relative z-10">Acknowledge</span>
-                            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform" />
-                        </Button>
+                        <div className="flex gap-3">
+                            <Button onClick={() => setDismissedTimeUp(true)} variant="secondary" className="flex-1 h-11 text-base">
+                                閉じる
+                            </Button>
+                            <Button onClick={() => { setDismissedTimeUp(true); handleComplete(); }} disabled={isArchiving} className="flex-1 h-11 text-base bg-emerald-600 hover:bg-emerald-700 border-emerald-600 focus:ring-emerald-500">
+                                {isArchiving ? <Loader2 size={16} className="mr-2 animate-spin" /> : <CheckCircle size={16} className="mr-2" />}
+                                スプリント完了にする
+                            </Button>
+                        </div>
                     </div>
                 </div>
             )}

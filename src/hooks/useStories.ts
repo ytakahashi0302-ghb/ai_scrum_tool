@@ -11,7 +11,7 @@ export function useStories() {
         if (!db) return;
         setLoading(true);
         try {
-            const result = await db.select<Story[]>('SELECT * FROM stories ORDER BY created_at DESC');
+            const result = await db.select<Story[]>('SELECT * FROM stories WHERE sprint_id IS NULL ORDER BY created_at DESC');
             setStories(result);
         } catch (err) {
             console.error('Failed to fetch stories', err);

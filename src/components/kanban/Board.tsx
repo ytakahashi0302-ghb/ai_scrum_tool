@@ -23,7 +23,11 @@ export function Board() {
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
     const sensors = useSensors(
-        useSensor(PointerSensor),
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 5,
+            },
+        }),
         useSensor(KeyboardSensor, {
             coordinateGetter: sortableKeyboardCoordinates,
         })
@@ -92,7 +96,7 @@ export function Board() {
     if (loading) {
         return (
             <div className="flex items-center justify-center p-8 h-full min-h-[50vh]">
-                <div className="text-gray-500">Loading board data...</div>
+                <div className="text-gray-500">データを読み込み中...</div>
             </div>
         );
     }
@@ -103,24 +107,24 @@ export function Board() {
                 <div className="flex justify-end mb-4">
                     <Button variant="secondary" onClick={() => setIsSettingsModalOpen(true)}>
                         <Settings size={20} className="mr-2" />
-                        Settings
+                        設定
                     </Button>
                 </div>
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Stories Yet</h3>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">ストーリーがありません</h3>
                     <p className="text-sm text-gray-500 max-w-sm mb-6">
-                        Create a story to start organizing your work and see the Kanban board.
+                        ストーリーを作成して、スプリントボードでタスクを管理しましょう。
                     </p>
                     <Button onClick={() => setIsAddStoryModalOpen(true)}>
                         <Plus size={20} className="mr-2" />
-                        Add Story
+                        ストーリーを追加
                     </Button>
 
                     <StoryFormModal
                         isOpen={isAddStoryModalOpen}
                         onClose={() => setIsAddStoryModalOpen(false)}
                         onSave={handleAddStory}
-                        title="Add New Story"
+                        title="ストーリーを追加"
                     />
 
                     <SettingsModal
@@ -135,15 +139,15 @@ export function Board() {
     return (
         <div className="p-6 bg-gray-100 min-h-screen">
             <div className="mb-6 flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-900">Sprint Board</h1>
+                <h1 className="text-2xl font-bold text-gray-900">スプリントボード</h1>
                 <div className="flex gap-2">
                     <Button variant="secondary" onClick={() => setIsSettingsModalOpen(true)}>
                         <Settings size={20} className="mr-2" />
-                        Settings
+                        設定
                     </Button>
                     <Button onClick={() => setIsAddStoryModalOpen(true)}>
                         <Plus size={20} className="mr-2" />
-                        Add Story
+                        ストーリーを追加
                     </Button>
                 </div>
             </div>
@@ -168,7 +172,7 @@ export function Board() {
                 isOpen={isAddStoryModalOpen}
                 onClose={() => setIsAddStoryModalOpen(false)}
                 onSave={handleAddStory}
-                title="Add New Story"
+                title="ストーリーを追加"
             />
 
             <SettingsModal

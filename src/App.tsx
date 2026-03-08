@@ -4,6 +4,9 @@ import { Board } from "./components/kanban/Board";
 import { Button } from "./components/ui/Button";
 import { useScrum } from "./context/ScrumContext";
 import { Toaster } from 'react-hot-toast';
+import { useState } from 'react';
+import { History } from 'lucide-react';
+import { HistoryModal } from './components/HistoryModal';
 import "./App.css";
 
 // 開発用の初期データ投入ボタン等を含むコンポーネント（今後整理）
@@ -68,10 +71,12 @@ function DeveloperTools() {
 import { SprintTimer } from "./components/SprintTimer";
 
 function AppContent() {
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-gray-100 font-sans">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center">
               <span className="text-lg font-bold text-blue-600 tracking-tight flex items-center gap-2">
@@ -81,18 +86,33 @@ function AppContent() {
                 MicroScrum AI
               </span>
             </div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setIsHistoryOpen(true)}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                title="View Sprint History"
+              >
+                <History size={16} />
+                <span className="hidden sm:inline">履歴</span>
+              </button>
+            </div>
           </div>
         </div>
         <SprintTimer />
       </header>
 
-      <main className="max-w-7xl mx-auto lg:h-[calc(100vh-120px)] overflow-hidden pt-4">
+      <main className="w-full mx-auto px-4 sm:px-6 lg:px-8 lg:h-[calc(100vh-120px)] overflow-hidden pt-4">
         <div className="h-full overflow-y-auto">
           <Board />
         </div>
       </main>
 
-      <DeveloperTools />
+      {import.meta.env.DEV && <DeveloperTools />}
+
+      <HistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useState, memo, useCallback, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task } from '../../types';
-import { GripVertical, MoreVertical } from 'lucide-react';
+import { MoreVertical } from 'lucide-react';
 import { TaskFormModal, TaskFormData } from '../board/TaskFormModal';
 import { useScrum } from '../../context/ScrumContext';
 import ReactMarkdown from 'react-markdown';
@@ -39,16 +39,12 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
         <div
             ref={setNodeRef}
             style={style}
-            className={`bg-white p-3 rounded-md shadow-sm border ${isDragging ? 'border-blue-500 opacity-50' : 'border-gray-200 hover:border-gray-300'
-                } flex items-start gap-2 mb-2 group relative`}
+            {...attributes}
+            {...listeners}
+            onClick={() => setIsEditModalOpen(true)}
+            className={`bg-white p-3 rounded-md shadow-sm border cursor-grab active:cursor-grabbing ${isDragging ? 'border-blue-500 opacity-50' : 'border-gray-200 hover:border-blue-300'
+                } flex flex-col gap-1 mb-2 group relative transition-colors`}
         >
-            <div
-                {...attributes}
-                {...listeners}
-                className="mt-0.5 text-gray-400 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-                <GripVertical size={16} />
-            </div>
             <div className="flex-1 min-w-0 pr-6">
                 <h4 className="text-sm font-medium text-gray-900 truncate" title={task.title}>{task.title}</h4>
                 {task.description && (
@@ -66,7 +62,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
             </div>
 
             <button
-                onClick={() => setIsEditModalOpen(true)}
+                onClick={(e) => { e.stopPropagation(); setIsEditModalOpen(true); }}
                 className="absolute top-2 right-2 p-1 text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 hover:bg-gray-100 rounded transition-all"
             >
                 <MoreVertical size={16} />
@@ -100,7 +96,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
                         'DONE': 'Done'
                     }).find(([_, v]) => v === task.status)?.[0] as TaskFormData['status'] || 'TODO'
                 }), [task.title, task.description, task.status])}
-                title="Edit Task"
+                title="タスクを編集"
             />
         </div>
     );

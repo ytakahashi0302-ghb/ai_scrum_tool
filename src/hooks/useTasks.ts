@@ -12,7 +12,7 @@ export function useTasks() {
         if (!db) return;
         setLoading(true);
         try {
-            const result = await db.select<Task[]>('SELECT * FROM tasks ORDER BY created_at ASC');
+            const result = await db.select<Task[]>('SELECT * FROM tasks WHERE sprint_id IS NULL ORDER BY created_at ASC');
             setTasks(result);
         } catch (err) {
             console.error('Failed to fetch tasks', err);
@@ -24,7 +24,7 @@ export function useTasks() {
     const fetchTasksByStoryId = useCallback(async (storyId: string) => {
         if (!db) return [];
         try {
-            return await db.select<Task[]>('SELECT * FROM tasks WHERE story_id = $1 ORDER BY created_at ASC', [storyId]);
+            return await db.select<Task[]>('SELECT * FROM tasks WHERE story_id = $1 AND sprint_id IS NULL ORDER BY created_at ASC', [storyId]);
         } catch (err) {
             console.error('Failed to fetch tasks by story id', err);
             return [];
@@ -68,7 +68,7 @@ export function useTasks() {
                     t.id === taskId && previousTask ? { ...t, status: previousTask.status } : t
                 )
             );
-            toast.error('Failed to update task status. Changes reverted.');
+            toast.error('ステータスの更新に失敗しました。変更は元に戻されました。');
         }
     }, [db]);
 

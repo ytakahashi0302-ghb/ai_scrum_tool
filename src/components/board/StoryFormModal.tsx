@@ -3,6 +3,7 @@ import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { Button } from '../ui/Button';
+import toast from 'react-hot-toast';
 
 export interface StoryFormData {
     title: string;
@@ -57,7 +58,10 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!validate()) return;
+        if (!validate()) {
+            toast.error('タイトルを入力してください (Title is required)');
+            return;
+        }
 
         setIsSubmitting(true);
         try {
@@ -72,30 +76,30 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title}>
+        <Modal isOpen={isOpen} onClose={onClose} width="lg" title={title}>
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <Input
-                    label="Title"
+                    label="タイトル"
                     value={formData.title}
                     onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))}
                     error={errors.title}
-                    placeholder="As a user, I want to..."
+                    placeholder="ユーザーとして、〇〇を達成したい..."
                     autoFocus
                 />
 
                 <Textarea
-                    label="Description"
+                    label="詳細説明"
                     value={formData.description}
                     onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
-                    placeholder="Detailed description of the story..."
+                    placeholder="ストーリーの詳細な背景や説明..."
                     rows={4}
                 />
 
                 <Textarea
-                    label="Acceptance Criteria"
+                    label="受け入れ条件 (Acceptance Criteria)"
                     value={formData.acceptance_criteria}
                     onChange={(e) => setFormData(p => ({ ...p, acceptance_criteria: e.target.value }))}
-                    placeholder="- The user can...&#10;- The system should..."
+                    placeholder="- ユーザーが〇〇できること&#10;- 〇〇のデータが保存されること..."
                     rows={4}
                 />
 
@@ -106,22 +110,22 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
                                 type="button"
                                 variant="danger"
                                 onClick={async () => {
-                                    if (window.confirm("Are you sure you want to delete this story?")) {
+                                    if (window.confirm("このストーリーを削除してもよろしいですか？（紐づくタスクも削除されます）")) {
                                         await onDelete();
                                         onClose();
                                     }
                                 }}
                             >
-                                Delete
+                                削除
                             </Button>
                         )}
                     </div>
                     <div className="flex gap-2">
                         <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
-                            Cancel
+                            キャンセル
                         </Button>
                         <Button type="submit" variant="primary" disabled={isSubmitting}>
-                            {isSubmitting ? 'Saving...' : 'Save'}
+                            {isSubmitting ? '保存中...' : '保存'}
                         </Button>
                     </div>
                 </div>

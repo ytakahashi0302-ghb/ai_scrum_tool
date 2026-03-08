@@ -5,6 +5,7 @@ import { Button } from '../ui/Button';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import toast from 'react-hot-toast';
 
 export interface TaskFormData {
     title: string;
@@ -62,7 +63,10 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!validate()) return;
+        if (!validate()) {
+            toast.error('タイトルを入力してください (Title is required)');
+            return;
+        }
 
         setIsSubmitting(true);
         try {
@@ -77,34 +81,34 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title}>
+        <Modal isOpen={isOpen} onClose={onClose} width="lg" title={title}>
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <Input
-                    label="Title"
+                    label="タイトル"
                     value={formData.title}
                     onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))}
                     error={errors.title}
-                    placeholder="What needs to be done?"
+                    placeholder="何をすべきですか？"
                     autoFocus
                 />
 
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium text-gray-700">Description</label>
+                        <label className="text-sm font-medium text-gray-700">詳細・詳細設定</label>
                         <div className="flex bg-gray-100 p-0.5 rounded-md">
                             <button
                                 type="button"
                                 onClick={() => setMode('edit')}
                                 className={`px-3 py-1 text-sm rounded-sm transition-colors ${mode === 'edit' ? 'bg-white shadow-sm font-medium text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
                             >
-                                Edit
+                                編集
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setMode('preview')}
                                 className={`px-3 py-1 text-sm rounded-sm transition-colors ${mode === 'preview' ? 'bg-white shadow-sm font-medium text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
                             >
-                                Preview
+                                プレビュー
                             </button>
                         </div>
                     </div>
@@ -113,7 +117,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         <textarea
                             value={formData.description}
                             onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
-                            placeholder="Add Markdown details here..."
+                            placeholder="Markdownで詳細を記述できます..."
                             className="font-mono text-sm min-h-[200px] w-full p-3 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors bg-white resize-y"
                         />
                     ) : (
@@ -123,22 +127,22 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                     {formData.description}
                                 </ReactMarkdown>
                             ) : (
-                                <p className="text-gray-400 italic font-sans m-0">Nothing to preview</p>
+                                <p className="text-gray-400 italic font-sans m-0">プレビューする内容がありません</p>
                             )}
                         </div>
                     )}
                 </div>
 
                 <div className="flex flex-col gap-1 w-full">
-                    <label className="text-sm font-medium text-gray-700">Status</label>
+                    <label className="text-sm font-medium text-gray-700">ステータス</label>
                     <select
                         value={formData.status}
                         onChange={(e) => setFormData(p => ({ ...p, status: e.target.value as TaskFormData['status'] }))}
                         className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
                     >
-                        <option value="TODO">To Do</option>
-                        <option value="IN_PROGRESS">In Progress</option>
-                        <option value="DONE">Done</option>
+                        <option value="TODO">未着手 (To Do)</option>
+                        <option value="IN_PROGRESS">進行中 (In Progress)</option>
+                        <option value="DONE">完了 (Done)</option>
                     </select>
                 </div>
 
@@ -149,22 +153,22 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                 type="button"
                                 variant="danger"
                                 onClick={async () => {
-                                    if (window.confirm("Are you sure you want to delete this task?")) {
+                                    if (window.confirm("このタスクを削除してもよろしいですか？")) {
                                         await onDelete();
                                         onClose();
                                     }
                                 }}
                             >
-                                Delete
+                                削除
                             </Button>
                         )}
                     </div>
                     <div className="flex gap-2">
                         <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
-                            Cancel
+                            キャンセル
                         </Button>
                         <Button type="submit" variant="primary" disabled={isSubmitting}>
-                            {isSubmitting ? 'Saving...' : 'Save'}
+                            {isSubmitting ? '保存中...' : '保存'}
                         </Button>
                     </div>
                 </div>

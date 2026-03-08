@@ -23,19 +23,25 @@ export function StatusColumn({ storyId, status, tasks }: StatusColumnProps) {
     });
 
     const bgClasses = {
-        'To Do': 'bg-gray-50',
-        'In Progress': 'bg-blue-50',
-        'Done': 'bg-green-50'
+        'To Do': 'bg-slate-50 border-slate-200',
+        'In Progress': 'bg-blue-50 border-blue-200',
+        'Done': 'bg-emerald-50 border-emerald-200'
+    };
+
+    const displayStatus = {
+        'To Do': '未着手',
+        'In Progress': '進行中',
+        'Done': '完了'
     };
 
     return (
         <div
             ref={setNodeRef}
-            className={`flex-1 min-h-[150px] p-2 rounded-md ${bgClasses[status]} transition-colors ${isOver ? 'ring-2 ring-blue-400 ring-inset' : ''
+            className={`flex-1 min-h-[150px] p-3 rounded-xl border ${bgClasses[status]} transition-colors ${isOver ? 'ring-2 ring-blue-400 ring-inset opacity-80' : ''
                 }`}
         >
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 px-1">
-                {status} <span className="text-gray-400 font-normal ml-1">({tasks.length})</span>
+            <h3 className="text-xs font-semibold text-gray-500 tracking-wider mb-3 px-1">
+                {displayStatus[status]} <span className="text-gray-400 font-normal ml-1">({tasks.length})</span>
             </h3>
 
             <SortableContext

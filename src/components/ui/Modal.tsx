@@ -10,7 +10,7 @@ export function cn(...inputs: ClassValue[]) {
 interface ModalProps {
     isOpen: boolean;
     onClose: () => void;
-    title: string;
+    title: ReactNode;
     children: ReactNode;
     width?: 'sm' | 'md' | 'lg' | 'xl';
 }
@@ -28,7 +28,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div
-                className={cn("bg-white rounded-lg shadow-xl w-full flex flex-col max-h-[90vh]", widthClass)}
+                className={cn("bg-white rounded-xl shadow-xl w-full flex flex-col max-h-[90vh]", widthClass)}
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between p-4 border-b">

@@ -93,25 +93,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             // Store保存後、アプリ全体に設定更新を通知
             window.dispatchEvent(new CustomEvent('settings-updated'));
 
-            setMessage({ text: 'Settings saved successfully.', type: 'success' });
+            setMessage({ text: '設定を保存しました。', type: 'success' });
             setTimeout(() => {
                 onClose();
             }, 1000);
         } catch (error) {
             console.error('Failed to save settings:', error);
-            setMessage({ text: 'Failed to save settings.', type: 'error' });
+            setMessage({ text: '設定の保存に失敗しました。', type: 'error' });
         } finally {
             setIsSaving(false);
         }
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Settings">
+        <Modal isOpen={isOpen} onClose={onClose} title="設定">
             <div className="space-y-6">
 
                 {/* Provider Selection */}
                 <div>
-                    <label className="text-sm font-medium text-gray-700 block mb-2">Default AI Provider</label>
+                    <label className="text-sm font-medium text-gray-700 block mb-2">デフォルトAIプロバイダー</label>
                     <div className="flex gap-4">
                         <label className="flex items-center gap-2">
                             <input
@@ -142,20 +142,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                 <div className="border-t pt-4 space-y-4">
                     <div>
-                        <label className="text-sm font-medium text-gray-700 block mb-2">Sprint Duration (Hours)</label>
+                        <label className="text-sm font-medium text-gray-700 block mb-2">スプリント期間（時間）</label>
                         <select
                             value={sprintDuration}
                             onChange={(e) => setSprintDuration(Number(e.target.value))}
                             disabled={isLoading || isSaving}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         >
-                            <option value={1}>1 Hour (Default)</option>
-                            <option value={2}>2 Hours</option>
-                            <option value={4}>4 Hours</option>
-                            <option value={8}>8 Hours (Max)</option>
+                            <option value={1}>1時間（デフォルト）</option>
+                            <option value={2}>2時間</option>
+                            <option value={4}>4時間</option>
+                            <option value={8}>8時間（最大）</option>
                         </select>
                         <p className="text-xs text-gray-500 mt-1">
-                            Current active sprints won't be affected. The new duration takes effect upon starting the next sprint.
+                            現在進行中のスプリントには影響しません。新しい期間は次のスプリント開始時に適用されます。
                         </p>
                     </div>
                 </div>
@@ -182,7 +182,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         />
                     </div>
                     <p className="text-xs text-gray-500">
-                        API keys are securely stored locally and used only for AI task generation.
+                        APIキーはローカルに安全に保存され、AIによるタスク生成の目的にのみ使用されます。
                     </p>
                 </div>
 
@@ -194,10 +194,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                 <div className="flex justify-end gap-2 mt-6">
                     <Button variant="secondary" onClick={onClose} disabled={isSaving}>
-                        Close
+                        閉じる
                     </Button>
                     <Button onClick={handleSave} disabled={isLoading || isSaving}>
-                        {isSaving ? 'Saving...' : 'Save'}
+                        {isSaving ? '保存中...' : '保存'}
                     </Button>
                 </div>
             </div>

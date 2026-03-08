@@ -15,6 +15,12 @@ pub fn run() {
             description: "create_initial_tables",
             sql: include_str!("../migrations/1_init.sql"),
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "add_sprints",
+            sql: include_str!("../migrations/2_add_sprints.sql"),
+            kind: MigrationKind::Up,
         }
     ];
 

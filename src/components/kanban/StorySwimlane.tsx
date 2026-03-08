@@ -120,7 +120,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: Story
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                        {story.status}
+                        {story.status === 'Ready' ? '準備完了' : story.status === 'In Progress' ? '進行中' : story.status === 'Done' ? '完了' : story.status}
                     </span>
                     <Button
                         size="sm"
@@ -134,11 +134,11 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: Story
                         ) : (
                             <Sparkles size={16} className="mr-1" />
                         )}
-                        {isGenerating ? 'Generating...' : 'AI Generate'}
+                        {isGenerating ? 'AI生成中...' : 'AIで自動生成'}
                     </Button>
                     <Button size="sm" onClick={() => setIsAddTaskModalOpen(true)}>
                         <Plus size={16} className="mr-1" />
-                        Add Task
+                        タスクを追加
                     </Button>
                     <button
                         onClick={() => setIsEditStoryModalOpen(true)}
@@ -151,7 +151,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: Story
 
             {error && (
                 <div className="px-4 py-2 bg-red-50 text-red-600 text-sm border-b border-red-100">
-                    <span className="font-semibold">Error:</span> {error}
+                    <span className="font-semibold">エラー:</span> {error}
                 </div>
             )}
 
@@ -173,7 +173,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: Story
                 isOpen={isAddTaskModalOpen}
                 onClose={() => setIsAddTaskModalOpen(false)}
                 onSave={handleAddTask}
-                title={`Add Task to "${story.title}"`}
+                title={`「${story.title}」にタスクを追加`}
             />
 
             <StoryFormModal
@@ -186,7 +186,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: Story
                     description: story.description || '',
                     acceptance_criteria: story.acceptance_criteria || ''
                 }}
-                title="Edit Story"
+                title="ストーリーを編集"
             />
         </div>
     );
