@@ -1,52 +1,54 @@
 import { useState, useCallback } from 'react';
-import { useDatabase } from './useDatabase';
+import { invoke } from '@tauri-apps/api/core';
 import { Task } from '../types';
 import toast from 'react-hot-toast';
 
 export function useTasks() {
-    const { db } = useDatabase();
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(false);
 
     const fetchTasks = useCallback(async () => {
-        if (!db) return;
         setLoading(true);
         try {
-            const result = await db.select<Task[]>('SELECT * FROM tasks WHERE sprint_id IS NULL ORDER BY created_at ASC');
+            const result = await invoke<Task[]>('get_tasks', { projectId: 'default' });
             setTasks(result);
         } catch (err) {
             console.error('Failed to fetch tasks', err);
+            toast.error(`タスクの取得に失敗しました: ${err}`);
         } finally {
             setLoading(false);
         }
-    }, [db]);
+    }, []);
 
     const fetchTasksByStoryId = useCallback(async (storyId: string) => {
-        if (!db) return [];
         try {
-            return await db.select<Task[]>('SELECT * FROM tasks WHERE story_id = $1 AND sprint_id IS NULL ORDER BY created_at ASC', [storyId]);
+            return await invoke<Task[]>('get_tasks_by_story_id', { storyId, projectId: 'default' });
         } catch (err) {
             console.error('Failed to fetch tasks by story id', err);
+            toast.error(`ストーリー別タスクの取得に失敗しました: ${err}`);
             return [];
         }
-    }, [db]);
+    }, []);
 
     const addTask = useCallback(async (task: Omit<Task, 'created_at' | 'updated_at'>) => {
-        if (!db) return;
         try {
-            await db.execute(
-                'INSERT INTO tasks (id, story_id, title, description, status) VALUES ($1, $2, $3, $4, $5)',
-                [task.id, task.story_id, task.title, task.description, task.status]
-            );
+            await invoke('add_task', {
+                id: task.id,
+                storyId: task.story_id,
+                title: task.title,
+                description: task.description,
+                status: task.status,
+                projectId: 'default'
+            });
             await fetchTasks();
         } catch (err) {
             console.error('Failed to add task', err);
+            toast.error(`タスクの作成に失敗しました: ${err}`);
+            throw err;
         }
-    }, [db, fetchTasks]);
+    }, [fetchTasks]);
 
     const updateTaskStatus = useCallback(async (taskId: string, status: Task['status']) => {
-        if (!db) return;
-
         // 楽観的UIによるフロントエンドStateの先行更新
         let previousTask: Task | undefined;
         setTasks(prev => {
@@ -55,10 +57,7 @@ export function useTasks() {
         });
 
         try {
-            await db.execute(
-                'UPDATE tasks SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-                [status, taskId]
-            );
+            await invoke('update_task_status', { id: taskId, status });
             // 成功時は再取得（fetchTasks）をスキップし、dnd-kitのフリッカー（チラつき）を防止する
         } catch (err) {
             console.error('Failed to update task status', err);
@@ -70,30 +69,34 @@ export function useTasks() {
             );
             toast.error('ステータスの更新に失敗しました。変更は元に戻されました。');
         }
-    }, [db]);
+    }, []);
 
     const updateTask = useCallback(async (task: Task) => {
-        if (!db) return;
         try {
-            await db.execute(
-                'UPDATE tasks SET title = $1, description = $2, status = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4',
-                [task.title, task.description, task.status, task.id]
-            );
+            await invoke('update_task', {
+                id: task.id,
+                title: task.title,
+                description: task.description,
+                status: task.status
+            });
             await fetchTasks();
         } catch (err) {
             console.error('Failed to update task', err);
+            toast.error(`タスクの更新に失敗しました: ${err}`);
+            throw err;
         }
-    }, [db, fetchTasks]);
+    }, [fetchTasks]);
 
     const deleteTask = useCallback(async (id: string) => {
-        if (!db) return;
         try {
-            await db.execute('DELETE FROM tasks WHERE id = $1', [id]);
+            await invoke('delete_task', { id });
             await fetchTasks();
         } catch (err) {
             console.error('Failed to delete task', err);
+            toast.error(`タスクの削除に失敗しました: ${err}`);
+            throw err;
         }
-    }, [db, fetchTasks]);
+    }, [fetchTasks]);
 
     return {
         tasks,

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
-import { useDatabase } from './useDatabase';
+import { invoke } from '@tauri-apps/api/core';
 import { Sprint, Story, Task } from '../types';
+import toast from 'react-hot-toast';
 
 export interface SprintHistoryData {
     sprint: Sprint;
@@ -9,22 +10,20 @@ export interface SprintHistoryData {
 }
 
 export function useSprintHistory() {
-    const { db } = useDatabase();
     const [historyData, setHistoryData] = useState<SprintHistoryData[]>([]);
     const [loading, setLoading] = useState(false);
 
     const fetchHistory = useCallback(async () => {
-        if (!db) return;
         setLoading(true);
         try {
             // 1. 全スプリントを新しい順に取得
-            const sprints = await db.select<Sprint[]>('SELECT * FROM sprints ORDER BY started_at DESC');
+            const sprints = await invoke<Sprint[]>('get_sprints', { projectId: 'default' });
 
             // 2. アーカイブされた全Storyを取得
-            const archivedStories = await db.select<Story[]>('SELECT * FROM stories WHERE sprint_id IS NOT NULL');
+            const archivedStories = await invoke<Story[]>('get_archived_stories', { projectId: 'default' });
 
             // 3. アーカイブされた全Taskを取得
-            const archivedTasks = await db.select<Task[]>('SELECT * FROM tasks WHERE sprint_id IS NOT NULL');
+            const archivedTasks = await invoke<Task[]>('get_archived_tasks', { projectId: 'default' });
 
             // 4. スプリントごとにデータをまとめる
             const aggregatedData: SprintHistoryData[] = sprints.map(sprint => {
@@ -40,10 +39,11 @@ export function useSprintHistory() {
             setHistoryData(aggregatedData);
         } catch (error) {
             console.error('Failed to fetch sprint history:', error);
+            toast.error(`スプリント履歴の取得に失敗しました: ${error}`);
         } finally {
             setLoading(false);
         }
-    }, [db]);
+    }, []);
 
     return {
         historyData,

@@ -1,60 +1,70 @@
 import { useState, useCallback } from 'react';
-import { useDatabase } from './useDatabase';
+import { invoke } from '@tauri-apps/api/core';
 import { Story } from '../types';
+import toast from 'react-hot-toast';
 
 export function useStories() {
-    const { db } = useDatabase();
     const [stories, setStories] = useState<Story[]>([]);
     const [loading, setLoading] = useState(false);
 
     const fetchStories = useCallback(async () => {
-        if (!db) return;
         setLoading(true);
         try {
-            const result = await db.select<Story[]>('SELECT * FROM stories WHERE sprint_id IS NULL ORDER BY created_at DESC');
+            const result = await invoke<Story[]>('get_stories', { projectId: 'default' });
             setStories(result);
         } catch (err) {
             console.error('Failed to fetch stories', err);
+            toast.error(`ストーリーの取得に失敗しました: ${err}`);
         } finally {
             setLoading(false);
         }
-    }, [db]);
+    }, []);
 
     const addStory = useCallback(async (story: Omit<Story, 'created_at' | 'updated_at'>) => {
-        if (!db) return;
         try {
-            await db.execute(
-                'INSERT INTO stories (id, title, description, acceptance_criteria, status) VALUES ($1, $2, $3, $4, $5)',
-                [story.id, story.title, story.description, story.acceptance_criteria, story.status]
-            );
+            await invoke('add_story', {
+                id: story.id,
+                title: story.title,
+                description: story.description,
+                acceptanceCriteria: story.acceptance_criteria,
+                status: story.status,
+                projectId: 'default'
+            });
             await fetchStories();
         } catch (err) {
             console.error('Failed to add story', err);
+            toast.error(`ストーリーの作成に失敗しました: ${err}`);
+            throw err;
         }
-    }, [db, fetchStories]);
+    }, [fetchStories]);
 
     const updateStory = useCallback(async (story: Story) => {
-        if (!db) return;
         try {
-            await db.execute(
-                'UPDATE stories SET title = $1, description = $2, acceptance_criteria = $3, status = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5',
-                [story.title, story.description, story.acceptance_criteria, story.status, story.id]
-            );
+            await invoke('update_story', {
+                id: story.id,
+                title: story.title,
+                description: story.description,
+                acceptanceCriteria: story.acceptance_criteria,
+                status: story.status
+            });
             await fetchStories();
         } catch (err) {
             console.error('Failed to update story', err);
+            toast.error(`ストーリーの更新に失敗しました: ${err}`);
+            throw err;
         }
-    }, [db, fetchStories]);
+    }, [fetchStories]);
 
     const deleteStory = useCallback(async (id: string) => {
-        if (!db) return;
         try {
-            await db.execute('DELETE FROM stories WHERE id = $1', [id]);
+            await invoke('delete_story', { id });
             await fetchStories();
         } catch (err) {
             console.error('Failed to delete story', err);
+            toast.error(`ストーリーの削除に失敗しました: ${err}`);
+            throw err;
         }
-    }, [db, fetchStories]);
+    }, [fetchStories]);
 
     return {
         stories,

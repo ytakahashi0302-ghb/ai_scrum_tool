@@ -1,0 +1,72 @@
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { Project } from '../types';
+import toast from 'react-hot-toast';
+
+interface WorkspaceContextType {
+    projects: Project[];
+    currentProjectId: string;
+    setCurrentProjectId: (id: string) => void;
+    fetchProjects: () => Promise<void>;
+    addProject: (id: string, name: string, description: string | null) => Promise<void>;
+}
+
+const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
+
+export function WorkspaceProvider({ children }: { children: ReactNode }) {
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [currentProjectId, setCurrentProjectIdState] = useState<string>('default');
+
+    const fetchProjects = useCallback(async () => {
+        try {
+            const result = await invoke<Project[]>('get_projects');
+            setProjects(result);
+        } catch (err) {
+            console.error('Failed to fetch projects', err);
+            toast.error(`プロジェクトの取得に失敗しました: ${err}`);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchProjects();
+    }, [fetchProjects]);
+
+    const addProject = useCallback(async (id: string, name: string, description: string | null) => {
+        try {
+            await invoke('create_project', {
+                id,
+                name,
+                description
+            });
+            await fetchProjects();
+            setCurrentProjectIdState(id);
+            toast.success('ワークスペースを作成しました');
+        } catch (err) {
+            console.error('Failed to create project', err);
+            toast.error(`ワークスペースの作成に失敗しました: ${err}`);
+            throw err;
+        }
+    }, [fetchProjects]);
+
+    const setCurrentProjectId = useCallback((id: string) => {
+        setCurrentProjectIdState(id);
+    }, []);
+
+    const value = {
+        projects,
+        currentProjectId,
+        setCurrentProjectId,
+        fetchProjects,
+        addProject
+    };
+
+    return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
+}
+
+export function useWorkspace() {
+    const context = useContext(WorkspaceContext);
+    if (context === undefined) {
+        throw new Error('useWorkspace must be used within a WorkspaceProvider');
+    }
+    return context;
+}
