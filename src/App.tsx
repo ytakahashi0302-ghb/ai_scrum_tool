@@ -1,5 +1,8 @@
 import "./App.css";
 import { ScrumProvider } from "./context/ScrumContext";
+import { WorkspaceProvider } from "./context/WorkspaceContext";
+import { SprintTimerProvider } from "./context/SprintTimerContext";
+import { ProjectSelector } from "./components/ui/ProjectSelector";
 import { Board } from "./components/kanban/Board";
 import { Button } from "./components/ui/Button";
 import { useScrum } from "./context/ScrumContext";
@@ -85,6 +88,7 @@ function AppContent() {
                 </svg>
                 MicroScrum AI
               </span>
+              <ProjectSelector />
             </div>
             <div className="flex items-center gap-4">
               <button
@@ -119,10 +123,14 @@ function AppContent() {
 
 function App() {
   return (
-    <ScrumProvider>
-      <Toaster position="bottom-right" />
-      <AppContent />
-    </ScrumProvider>
+    <WorkspaceProvider>
+      <SprintTimerProvider>
+        <ScrumProvider>
+          <Toaster position="bottom-right" />
+          <AppContent />
+        </ScrumProvider>
+      </SprintTimerProvider>
+    </WorkspaceProvider>
   );
 }
 

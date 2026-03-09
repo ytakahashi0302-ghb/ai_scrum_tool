@@ -2,15 +2,17 @@ import { useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Task } from '../types';
 import toast from 'react-hot-toast';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 export function useTasks() {
+    const { currentProjectId } = useWorkspace();
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(false);
 
     const fetchTasks = useCallback(async () => {
         setLoading(true);
         try {
-            const result = await invoke<Task[]>('get_tasks', { projectId: 'default' });
+            const result = await invoke<Task[]>('get_tasks', { projectId: currentProjectId });
             setTasks(result);
         } catch (err) {
             console.error('Failed to fetch tasks', err);
@@ -18,19 +20,19 @@ export function useTasks() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [currentProjectId]);
 
     const fetchTasksByStoryId = useCallback(async (storyId: string) => {
         try {
-            return await invoke<Task[]>('get_tasks_by_story_id', { storyId, projectId: 'default' });
+            return await invoke<Task[]>('get_tasks_by_story_id', { storyId, projectId: currentProjectId });
         } catch (err) {
             console.error('Failed to fetch tasks by story id', err);
             toast.error(`ストーリー別タスクの取得に失敗しました: ${err}`);
             return [];
         }
-    }, []);
+    }, [currentProjectId]);
 
-    const addTask = useCallback(async (task: Omit<Task, 'created_at' | 'updated_at'>) => {
+    const addTask = useCallback(async (task: Omit<Task, 'created_at' | 'updated_at' | 'project_id'>) => {
         try {
             await invoke('add_task', {
                 id: task.id,
@@ -38,7 +40,7 @@ export function useTasks() {
                 title: task.title,
                 description: task.description,
                 status: task.status,
-                projectId: 'default'
+                projectId: currentProjectId
             });
             await fetchTasks();
         } catch (err) {
@@ -46,7 +48,7 @@ export function useTasks() {
             toast.error(`タスクの作成に失敗しました: ${err}`);
             throw err;
         }
-    }, [fetchTasks]);
+    }, [fetchTasks, currentProjectId]);
 
     const updateTaskStatus = useCallback(async (taskId: string, status: Task['status']) => {
         // 楽観的UIによるフロントエンドStateの先行更新

@@ -2,15 +2,17 @@ import { useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Story } from '../types';
 import toast from 'react-hot-toast';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 export function useStories() {
+    const { currentProjectId } = useWorkspace();
     const [stories, setStories] = useState<Story[]>([]);
     const [loading, setLoading] = useState(false);
 
     const fetchStories = useCallback(async () => {
         setLoading(true);
         try {
-            const result = await invoke<Story[]>('get_stories', { projectId: 'default' });
+            const result = await invoke<Story[]>('get_stories', { projectId: currentProjectId });
             setStories(result);
         } catch (err) {
             console.error('Failed to fetch stories', err);
@@ -18,9 +20,9 @@ export function useStories() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [currentProjectId]);
 
-    const addStory = useCallback(async (story: Omit<Story, 'created_at' | 'updated_at'>) => {
+    const addStory = useCallback(async (story: Omit<Story, 'created_at' | 'updated_at' | 'project_id'>) => {
         try {
             await invoke('add_story', {
                 id: story.id,
@@ -28,7 +30,7 @@ export function useStories() {
                 description: story.description,
                 acceptanceCriteria: story.acceptance_criteria,
                 status: story.status,
-                projectId: 'default'
+                projectId: currentProjectId
             });
             await fetchStories();
         } catch (err) {
@@ -36,7 +38,7 @@ export function useStories() {
             toast.error(`ストーリーの作成に失敗しました: ${err}`);
             throw err;
         }
-    }, [fetchStories]);
+    }, [fetchStories, currentProjectId]);
 
     const updateStory = useCallback(async (story: Story) => {
         try {

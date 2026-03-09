@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSprintTimer } from '../hooks/useSprintTimer';
+import { useSprintTimer } from '../context/SprintTimerContext';
 import { useSprintArchive } from '../hooks/useSprintArchive';
 import { Play, Pause, RotateCcw, CheckCircle, AlertTriangle, BellRing, Loader2 } from 'lucide-react';
 import { Button } from './ui/Button';

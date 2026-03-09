@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Sprint, Story, Task } from '../types';
 import toast from 'react-hot-toast';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 export interface SprintHistoryData {
     sprint: Sprint;
@@ -10,6 +11,7 @@ export interface SprintHistoryData {
 }
 
 export function useSprintHistory() {
+    const { currentProjectId } = useWorkspace();
     const [historyData, setHistoryData] = useState<SprintHistoryData[]>([]);
     const [loading, setLoading] = useState(false);
 
@@ -17,13 +19,13 @@ export function useSprintHistory() {
         setLoading(true);
         try {
             // 1. 全スプリントを新しい順に取得
-            const sprints = await invoke<Sprint[]>('get_sprints', { projectId: 'default' });
+            const sprints = await invoke<Sprint[]>('get_sprints', { projectId: currentProjectId });
 
             // 2. アーカイブされた全Storyを取得
-            const archivedStories = await invoke<Story[]>('get_archived_stories', { projectId: 'default' });
+            const archivedStories = await invoke<Story[]>('get_archived_stories', { projectId: currentProjectId });
 
             // 3. アーカイブされた全Taskを取得
-            const archivedTasks = await invoke<Task[]>('get_archived_tasks', { projectId: 'default' });
+            const archivedTasks = await invoke<Task[]>('get_archived_tasks', { projectId: currentProjectId });
 
             // 4. スプリントごとにデータをまとめる
             const aggregatedData: SprintHistoryData[] = sprints.map(sprint => {
@@ -43,7 +45,7 @@ export function useSprintHistory() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [currentProjectId]);
 
     return {
         historyData,

@@ -7,10 +7,10 @@ interface ScrumContextType {
     stories: Story[];
     tasks: Task[];
     loading: boolean;
-    addStory: (story: Omit<Story, 'created_at' | 'updated_at'>) => Promise<void>;
+    addStory: (story: Omit<Story, 'created_at' | 'updated_at' | 'project_id'>) => Promise<void>;
     updateStory: (story: Story) => Promise<void>;
     deleteStory: (id: string) => Promise<void>;
-    addTask: (task: Omit<Task, 'created_at' | 'updated_at'>) => Promise<void>;
+    addTask: (task: Omit<Task, 'created_at' | 'updated_at' | 'project_id'>) => Promise<void>;
     updateTaskStatus: (taskId: string, status: Task['status']) => Promise<void>;
     updateTask: (task: Task) => Promise<void>;
     deleteTask: (id: string) => Promise<void>;

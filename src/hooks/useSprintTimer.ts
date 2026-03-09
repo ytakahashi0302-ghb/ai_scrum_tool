@@ -13,7 +13,7 @@ export interface SprintState {
 
 const DEFAULT_SPRINT_TIME_MS = 1 * 60 * 60 * 1000; // 1 hour default
 
-export function useSprintTimer() {
+export function useSprintTimer(projectId: string) {
     const [state, setState] = useState<SprintState>({
         status: 'NOT_STARTED',
         remainingTimeMs: DEFAULT_SPRINT_TIME_MS,
@@ -44,20 +44,22 @@ export function useSprintTimer() {
 
     const saveState = useCallback(async (newState: SprintState) => {
         if (storeRef.current) {
-            await storeRef.current.set('sprintState', newState);
+            const key = `sprintState_${projectId}`;
+            await storeRef.current.set(key, newState);
             await storeRef.current.save();
         }
         setState(newState);
-    }, []);
+    }, [projectId]);
 
-    // storeからの初期ロード
+    // storeからの初期ロードおよびプロジェクト切り替え時のロード
     useEffect(() => {
         let mounted = true;
         async function initStore() {
             try {
                 const store = await load('sprint.json');
                 storeRef.current = store;
-                const savedState = await store.get<SprintState>('sprintState');
+                const key = `sprintState_${projectId}`;
+                const savedState = await store.get<SprintState>(key);
                 if (savedState && mounted) {
                     if (savedState.status === 'RUNNING' && savedState.startedAt) {
                         const elapsed = Date.now() - savedState.startedAt;
@@ -80,6 +82,18 @@ export function useSprintTimer() {
                         setState(savedState);
                         setActualRemainingTime(savedState.remainingTimeMs);
                     }
+                } else if (mounted) {
+                    // 対象プロジェクトの状態が存在しない場合は初期化
+                    const latestDurationMs = await getLatestDurationMs();
+                    const initState: SprintState = {
+                        status: 'NOT_STARTED',
+                        remainingTimeMs: latestDurationMs,
+                        durationMs: latestDurationMs,
+                        startedAt: null,
+                        hasNotifiedHalfway: false
+                    };
+                    setState(initState);
+                    setActualRemainingTime(latestDurationMs);
                 }
                 if (mounted) setIsLoaded(true);
             } catch (err) {
@@ -89,7 +103,7 @@ export function useSprintTimer() {
         }
         initStore();
         return () => { mounted = false; };
-    }, [getLatestDurationMs]);
+    }, [getLatestDurationMs, projectId]);
 
     // 設定変更イベントの監視（NOT_STARTED時に即時反映する）
     useEffect(() => {

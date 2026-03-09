@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import toast from 'react-hot-toast';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 export function useSprintArchive() {
+    const { currentProjectId } = useWorkspace();
     const [isArchiving, setIsArchiving] = useState(false);
 
     /**
@@ -22,7 +24,7 @@ export function useSprintArchive() {
                 startedAt,
                 completedAt,
                 durationMs,
-                projectId: 'default'
+                projectId: currentProjectId
             });
 
             return true;
@@ -33,7 +35,7 @@ export function useSprintArchive() {
         } finally {
             setIsArchiving(false);
         }
-    }, []);
+    }, [currentProjectId]);
 
     return {
         archiveSprint,
