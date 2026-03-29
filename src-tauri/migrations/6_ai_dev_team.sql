@@ -1,0 +1,10 @@
+ALTER TABLE tasks ADD COLUMN assignee_type TEXT;
+
+CREATE TABLE IF NOT EXISTS task_messages (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);

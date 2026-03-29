@@ -1,4 +1,5 @@
 import React, { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -12,7 +13,7 @@ interface ModalProps {
     onClose: () => void;
     title: ReactNode;
     children: ReactNode;
-    width?: 'sm' | 'md' | 'lg' | 'xl';
+    width?: 'sm' | 'md' | 'lg' | 'xl' | '5xl';
 }
 
 export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, width = 'md' }) => {
@@ -23,10 +24,11 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
         md: 'max-w-lg',
         lg: 'max-w-2xl',
         xl: 'max-w-4xl',
+        '5xl': 'max-w-5xl',
     }[width];
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    const modalContent = (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
             <div
                 className={cn("bg-white rounded-xl shadow-xl w-full flex flex-col max-h-[90vh]", widthClass)}
                 onClick={(e) => e.stopPropagation()}
@@ -46,4 +48,6 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
             </div>
         </div>
     );
+
+    return createPortal(modalContent, document.body);
 };

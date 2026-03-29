@@ -1,11 +1,14 @@
 import { createContext, useContext, useEffect, ReactNode } from 'react';
 import { useStories } from '../hooks/useStories';
 import { useTasks } from '../hooks/useTasks';
-import { Story, Task } from '../types';
+import { useSprints } from '../hooks/useSprints';
+import { invoke } from '@tauri-apps/api/core';
+import { Story, Task, Sprint } from '../types';
 
 interface ScrumContextType {
     stories: Story[];
     tasks: Task[];
+    sprints: Sprint[];
     loading: boolean;
     addStory: (story: Omit<Story, 'created_at' | 'updated_at' | 'project_id'>) => Promise<void>;
     updateStory: (story: Story) => Promise<void>;
@@ -14,6 +17,11 @@ interface ScrumContextType {
     updateTaskStatus: (taskId: string, status: Task['status']) => Promise<void>;
     updateTask: (task: Task) => Promise<void>;
     deleteTask: (id: string) => Promise<void>;
+    createPlannedSprint: () => Promise<Sprint>;
+    startSprint: (sprintId: string, durationMs: number) => Promise<void>;
+    completeSprint: (sprintId: string, completedAt: number) => Promise<void>;
+    assignStoryToSprint: (storyId: string, sprintId: string | null) => Promise<void>;
+    assignTaskToSprint: (taskId: string, sprintId: string | null) => Promise<void>;
     refresh: () => Promise<void>;
 }
 
@@ -39,19 +47,40 @@ export function ScrumProvider({ children }: { children: ReactNode }) {
         deleteTask
     } = useTasks();
 
+    const {
+        sprints,
+        loading: sprintsLoading,
+        fetchSprints,
+        createPlannedSprint,
+        startSprint,
+        completeSprint
+    } = useSprints();
+
     useEffect(() => {
         fetchStories();
         fetchTasks();
-    }, [fetchStories, fetchTasks]);
+        fetchSprints();
+    }, [fetchStories, fetchTasks, fetchSprints]);
 
     const refresh = async () => {
-        await Promise.all([fetchStories(), fetchTasks()]);
+        await Promise.all([fetchStories(), fetchTasks(), fetchSprints()]);
+    };
+
+    const assignStoryToSprint = async (storyId: string, sprintId: string | null) => {
+        await invoke('assign_story_to_sprint', { storyId, sprintId });
+        await refresh();
+    };
+
+    const assignTaskToSprint = async (taskId: string, sprintId: string | null) => {
+        await invoke('assign_task_to_sprint', { taskId, sprintId });
+        await refresh();
     };
 
     const value = {
         stories,
         tasks,
-        loading: storiesLoading || tasksLoading,
+        sprints,
+        loading: storiesLoading || tasksLoading || sprintsLoading,
         addStory,
         updateStory,
         deleteStory,
@@ -59,6 +88,11 @@ export function ScrumProvider({ children }: { children: ReactNode }) {
         updateTaskStatus,
         updateTask,
         deleteTask,
+        createPlannedSprint,
+        startSprint,
+        completeSprint,
+        assignStoryToSprint,
+        assignTaskToSprint,
         refresh
     };
 

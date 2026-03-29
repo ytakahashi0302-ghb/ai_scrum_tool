@@ -9,10 +9,11 @@ export interface Project {
 
 export interface Sprint {
     id: string;
-    started_at: number;
-    completed_at: number;
-    duration_ms: number;
     project_id: string;
+    status: 'Planned' | 'Active' | 'Completed';
+    started_at: number | null;
+    completed_at: number | null;
+    duration_ms: number | null;
 }
 
 export interface Story {
@@ -37,6 +38,15 @@ export interface Task {
     sprint_id?: string | null;
     project_id: string;
     archived: boolean;
+    assignee_type?: string | null;
     created_at: string;
     updated_at: string;
+}
+
+export interface TaskMessage {
+    id: string;
+    task_id: string;
+    role: 'user' | 'assistant' | 'model'; // Gemini may use 'model', Claude 'assistant'
+    content: string;
+    created_at: string;
 }

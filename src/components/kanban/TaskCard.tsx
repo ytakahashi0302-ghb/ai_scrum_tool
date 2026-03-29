@@ -81,7 +81,8 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
                         ...task,
                         title: data.title,
                         description: data.description,
-                        status: statusMap[data.status]
+                        status: statusMap[data.status],
+                        assignee_type: data.assigneeType
                     });
                 }, [task, updateTask])}
                 onDelete={useCallback(async () => {
@@ -94,9 +95,11 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
                         'TODO': 'To Do',
                         'IN_PROGRESS': 'In Progress',
                         'DONE': 'Done'
-                    }).find(([_, v]) => v === task.status)?.[0] as TaskFormData['status'] || 'TODO'
-                }), [task.title, task.description, task.status])}
+                    }).find(([_, v]) => v === task.status)?.[0] as TaskFormData['status'] || 'TODO',
+                    assigneeType: task.assignee_type || null
+                }), [task.title, task.description, task.status, task.assignee_type])}
                 title="タスクを編集"
+                taskId={task.id}
             />
         </div>
     );

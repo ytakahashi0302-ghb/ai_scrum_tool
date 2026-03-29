@@ -43,7 +43,8 @@
 - **Tauri v2 SQL Permissions**: `@tauri-apps/plugin-sql` をフロントエンドから使用する際、`capabilities/default.json` にて `"sql:default"` を許可するだけでなく、実際にコマンドを叩くために `"sql:allow-execute"` および `"sql:allow-select"` も明示的に追加しなければならない。
 
 ## 7. 課題・技術的負債 (Tech Debt)
-- ~~**ESLintの本格導入**~~: **対応済み** (`eslint` + `eslint-plugin-react-hooks` + `typescript-eslint` 導入済み。`npm run lint` で実行可能)
+- **Inception Deck対話履歴の揮発性**: Inception Deckで一度画面を閉じるとチャット履歴が消えてしまい、再開時のコンテキストが分かりにくい（状態の永続化が未実装）。
+- **Inception Deckへの再入線UI欠如**: カンバン画面等から「インセプションデッキを再度見直す・修正する」ための明確なUI動線（ルーティング）が存在しない。
 - **タイマー稼働中の新規プロジェクト作成によるガード漏れ**: スプリントタイマーが稼働している状態（RUNNING）で、ヘッダーのドロップダウンから「新規ワークスペース作成」を選択して新しいプロジェクトを作成した場合、Interaction Guard（確認ダイアログ）が発動せずに状態が新プロジェクトに引き継がれてしまうバグが存在する。レアケースであるため現状は許容（Tech Debt）とし、次回以降の開発で修正を検討する。
 - **AIタスク生成時のJSONパース正規表現の脆弱性**: 現在 `generate_tasks_from_story` 内のJSON抽出処理が最短マッチの正規表現 (`(?s)\[.*?\]`) で行われており、ネストされた配列などでパースが失敗する可能性がある。将来的にGeminiのように Structured Output (`application/json`) を Anthropic 側でも利用できるようにする。
 - **WorkspaceContext の初期プロジェクトIDハードコード**: `currentProjectId` の初期値が `'default'` と固定されているため、これが削除された場合のフォールバック（最初の有効なプロジェクトを選択する等）が未実装である。

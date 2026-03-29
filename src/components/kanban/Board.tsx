@@ -11,19 +11,27 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { useScrum } from '../../context/ScrumContext';
 import { StorySwimlane } from './StorySwimlane';
-import { Lightbulb, Plus, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { Button } from '../ui/Button';
-import { StoryFormModal, StoryFormData } from '../board/StoryFormModal';
 import { SettingsModal } from '../SettingsModal';
-import { IdeaRefinementDrawer } from '../ai/IdeaRefinementDrawer';
-import { v4 as uuidv4 } from 'uuid';
 
 export function Board() {
-    const { stories, tasks, updateTaskStatus, addStory, loading } = useScrum();
-    const [isAddStoryModalOpen, setIsAddStoryModalOpen] = useState(false);
+    const { stories, tasks, sprints, updateTaskStatus, loading } = useScrum();
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-    const [isIdeaRefinementModalOpen, setIsIdeaRefinementModalOpen] = useState(false);
-    const [storyFormInitialData, setStoryFormInitialData] = useState<Partial<StoryFormData> | undefined>();
+    
+    const activeSprint = useMemo(() => {
+        return sprints.find(s => s.status === 'Active');
+    }, [sprints]);
+    
+    const activeStories = useMemo(() => {
+        if (!activeSprint) return [];
+        return stories.filter(s => s.sprint_id === activeSprint.id);
+    }, [stories, activeSprint]);
+
+    const activeTasks = useMemo(() => {
+        if (!activeSprint) return [];
+        return tasks.filter(t => t.sprint_id === activeSprint.id);
+    }, [tasks, activeSprint]);
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -36,15 +44,6 @@ export function Board() {
         })
     );
 
-    const handleAddStory = useCallback(async (data: StoryFormData) => {
-        await addStory({
-            id: uuidv4(),
-            title: data.title,
-            description: data.description,
-            acceptance_criteria: data.acceptance_criteria,
-            status: 'Ready'
-        });
-    }, [addStory]);
 
     const handleDragEnd = useCallback((event: DragEndEvent) => {
         const { active, over } = event;
@@ -59,7 +58,7 @@ export function Board() {
         // 1. Column の上にドロップされた場合: '{storyId}-{status}' 形式
         // 2. 他の TaskCard の上にドロップされた場合: Task の ID (現在はSortableContextでソートは考慮していないため簡易な処理)
 
-        const activeTask = tasks.find(t => t.id === activeTaskId);
+        const activeTask = activeTasks.find(t => t.id === activeTaskId);
         if (!activeTask) return;
 
         let targetStoryId = '';
@@ -85,16 +84,16 @@ export function Board() {
             // 楽観的UI更新（非同期待ちを排除してフリッカーを防止）
             updateTaskStatus(activeTaskId, targetStatus as 'To Do' | 'In Progress' | 'Done');
         }
-    }, [tasks, updateTaskStatus]);
+    }, [activeTasks, updateTaskStatus]);
 
     const groupedTasks = useMemo(() => {
-        const groups: Record<string, typeof tasks> = {};
-        for (const t of tasks) {
+        const groups: Record<string, typeof activeTasks> = {};
+        for (const t of activeTasks) {
             if (!groups[t.story_id]) groups[t.story_id] = [];
             groups[t.story_id].push(t);
         }
         return groups;
-    }, [tasks]);
+    }, [activeTasks]);
 
     if (loading) {
         return (
@@ -104,7 +103,7 @@ export function Board() {
         );
     }
 
-    if (stories.length === 0) {
+    if (!activeSprint) {
         return (
             <div className="p-6 bg-gray-100 min-h-screen flex flex-col">
                 <div className="flex justify-end mb-4">
@@ -114,49 +113,33 @@ export function Board() {
                     </Button>
                 </div>
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">ストーリーがありません</h3>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">アクティブなスプリントがありません</h3>
                     <p className="text-sm text-gray-500 max-w-sm mb-6">
-                        ストーリーを作成して、スプリントボードでタスクを管理しましょう。
+                        バックログ画面から次のスプリントを計画し、開始してください。
                     </p>
-                    <div className="flex gap-4">
-                        <Button
-                            variant="secondary"
-                            onClick={() => setIsIdeaRefinementModalOpen(true)}
-                            className="bg-yellow-50 hover:bg-yellow-100 text-yellow-800 border-yellow-200"
-                        >
-                            <Lightbulb size={20} className="mr-2" />
-                            アイデアから作成
-                        </Button>
-                        <Button onClick={() => {
-                            setStoryFormInitialData(undefined);
-                            setIsAddStoryModalOpen(true);
-                        }}>
-                            <Plus size={20} className="mr-2" />
-                            ストーリーを追加
-                        </Button>
-                    </div>
-
-                    <StoryFormModal
-                        isOpen={isAddStoryModalOpen}
-                        initialData={storyFormInitialData}
-                        onClose={() => {
-                            setIsAddStoryModalOpen(false);
-                            setStoryFormInitialData(undefined);
-                        }}
-                        onSave={handleAddStory}
-                        title="ストーリーを追加"
+                    <SettingsModal
+                        isOpen={isSettingsModalOpen}
+                        onClose={() => setIsSettingsModalOpen(false)}
                     />
-
-                    <IdeaRefinementDrawer
-                        isOpen={isIdeaRefinementModalOpen}
-                        onClose={() => setIsIdeaRefinementModalOpen(false)}
-                        onComplete={(data) => {
-                            setStoryFormInitialData(data);
-                            setIsIdeaRefinementModalOpen(false);
-                            setIsAddStoryModalOpen(true);
-                        }}
-                    />
-
+                </div>
+            </div>
+        );
+    }
+    
+    if (activeStories.length === 0) {
+        return (
+            <div className="p-6 bg-gray-100 min-h-screen flex flex-col">
+                <div className="flex justify-end mb-4">
+                    <Button variant="secondary" onClick={() => setIsSettingsModalOpen(true)}>
+                        <Settings size={20} className="mr-2" />
+                        設定
+                    </Button>
+                </div>
+                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">タスクがありません</h3>
+                    <p className="text-sm text-gray-500 max-w-sm mb-6">
+                        このスプリントにはタスクが割り当てられていません。バックログから追加してください。
+                    </p>
                     <SettingsModal
                         isOpen={isSettingsModalOpen}
                         onClose={() => setIsSettingsModalOpen(false)}
@@ -175,21 +158,6 @@ export function Board() {
                         <Settings size={20} className="mr-2" />
                         設定
                     </Button>
-                    <Button
-                        variant="secondary"
-                        onClick={() => setIsIdeaRefinementModalOpen(true)}
-                        className="bg-yellow-50 hover:bg-yellow-100 text-yellow-800 border-yellow-200"
-                    >
-                        <Lightbulb size={20} className="mr-2" />
-                        アイデアから作成
-                    </Button>
-                    <Button onClick={() => {
-                        setStoryFormInitialData(undefined);
-                        setIsAddStoryModalOpen(true);
-                    }}>
-                        <Plus size={20} className="mr-2" />
-                        ストーリーを追加
-                    </Button>
                 </div>
             </div>
 
@@ -199,7 +167,7 @@ export function Board() {
                 onDragEnd={handleDragEnd}
             >
                 <div className="space-y-6">
-                    {stories.map(story => (
+                    {activeStories.map(story => (
                         <StorySwimlane
                             key={story.id}
                             story={story}
@@ -208,27 +176,6 @@ export function Board() {
                     ))}
                 </div>
             </DndContext>
-
-            <StoryFormModal
-                isOpen={isAddStoryModalOpen}
-                initialData={storyFormInitialData}
-                onClose={() => {
-                    setIsAddStoryModalOpen(false);
-                    setStoryFormInitialData(undefined);
-                }}
-                onSave={handleAddStory}
-                title="ストーリーを追加"
-            />
-
-            <IdeaRefinementDrawer
-                isOpen={isIdeaRefinementModalOpen}
-                onClose={() => setIsIdeaRefinementModalOpen(false)}
-                onComplete={(data) => {
-                    setStoryFormInitialData(data);
-                    setIsIdeaRefinementModalOpen(false);
-                    setIsAddStoryModalOpen(true);
-                }}
-            />
 
             <SettingsModal
                 isOpen={isSettingsModalOpen}

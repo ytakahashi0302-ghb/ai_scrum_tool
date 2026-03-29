@@ -41,6 +41,18 @@ pub fn run() {
             description: "add_local_path",
             sql: include_str!("../migrations/5_add_local_path.sql"),
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 6,
+            description: "ai_dev_team",
+            sql: include_str!("../migrations/6_ai_dev_team.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 7,
+            description: "scrum_foundation",
+            sql: include_str!("../migrations/7_scrum_foundation.sql"),
+            kind: MigrationKind::Up,
         }
     ];
 
@@ -84,12 +96,19 @@ pub fn run() {
             db::update_task,
             db::delete_task,
             db::get_sprints,
-            db::add_sprint,
-            db::archive_sprint,
+            db::create_planned_sprint,
+            db::start_sprint,
+            db::complete_sprint,
+            db::assign_story_to_sprint,
+            db::assign_task_to_sprint,
             inception::generate_base_rule,
             inception::read_inception_file,
             inception::write_inception_file,
-            ai::chat_inception
+            ai::chat_inception,
+            db::get_task_messages,
+            db::add_task_message,
+            db::clear_task_messages,
+            ai::chat_with_task_ai
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

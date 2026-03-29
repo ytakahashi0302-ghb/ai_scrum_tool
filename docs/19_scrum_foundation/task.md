@@ -1,0 +1,30 @@
+- [x] DBマイグレーションファイルの作成 (`7_scrum_foundation.sql`)
+  - [x] `sprints` テーブルの再作成 (`status` カラムの追加、`started_at` 等の NULL 許容化)
+  - [x] データ移行と古いテーブルの破棄
+  - [x] `sprint_id` 用のインデックス作成
+- [x] バックエンド (Rust / Tauri) の実装
+  - [x] `db.rs` の `Sprint` 構造体を更新 (`status`, Option fields)
+  - [x] `archive_sprint` の挙動を改修 (Done以外のタスクをスプリントから外す)
+  - [x] `create_planned_sprint` コマンドの実装
+  - [x] `start_sprint` コマンドの実装
+  - [x] `get_project_sprints` コマンドの実装
+  - [x] `assign_task_to_sprint` および `assign_story_to_sprint` コマンドの実装 (ストーリー割当時に子タスクも一括でトランザクション更新する)
+- [x] フロントエンド (React) の画面分割
+  - [x] ヘッダー下部（またはサイドバー）での「Dashboard / Backlog / Active Sprint」のタブ状態切り替えUI実装 (独立したコンポーネントとして設計)
+  - [x] `BacklogView` コンポーネントの新規作成
+    - [x] `sprint_id` 未割り当てのストーリー・タスクの一覧表示
+    - [x] 次のスプリント(Planned Sprint) ペインの作成とドラッグ＆ドロップアサイン機能
+    - [x] 「スプリントを開始」ボタンの実装
+  - [x] 既存の `KanbanBoard` を `ActiveSprintView` 向けに改修
+    - [x] `status === 'Active'` に紐づくアイテムのみを表示するようフィルタリング
+    - [x] アクティブスプリントがない場合の Empty State 切り替え
+- [x] 動作確認・マニュアル操作によるフルサイクルのテスト
+- [x] (完了後) `walkthrough.md` の作成とPOへの報告
+
+## Phase 3: バグ修正とUX向上 追加実装
+- [x] Bug 1対策: `Board.tsx` (および関連Context/Hooks) のリファクタリングで親ストーリー消失バグを解決する
+- [x] Feature 1: `db.rs` の `complete_sprint` を改修し、未完了タスクを次期Plannedスプリントへ自動ロールオーバー（無ければ新規作成）する
+- [x] Feature 2: `db.rs` の `get_tasks` を改修し、親ストーリーが未アーカイブの完了タスクも取得する
+- [x] Feature 2: `BacklogView.tsx` にタスク完了割合（例: 1/3）のバッジを追加し、完了タスクを半透明でレンダリングする
+- [x] Feature 3: スプリントからBacklogへの差し戻し（`null` アサイン）が動作するか検証（および修正）する
+- [x] (完了後) テストと `walkthrough.md` の更新

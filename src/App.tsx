@@ -5,7 +5,7 @@ import { SprintTimerProvider } from "./context/SprintTimerContext";
 import { ProjectSelector } from "./components/ui/ProjectSelector";
 import { ProjectSettings } from "./components/ui/ProjectSettings";
 import { InceptionDeck } from "./components/project/InceptionDeck";
-import { Board } from "./components/kanban/Board";
+import { ScrumDashboard } from "./components/kanban/ScrumDashboard";
 import { Button } from "./components/ui/Button";
 import { useScrum } from "./context/ScrumContext";
 import { Toaster } from 'react-hot-toast';
@@ -147,9 +147,9 @@ function AppContent() {
         <SprintTimer />
       </header>
 
-      <main className="w-full mx-auto px-4 sm:px-6 lg:px-8 lg:h-[calc(100vh-120px)] overflow-hidden pt-4">
-        <div className="h-full overflow-y-auto">
-          <Board />
+      <main className="w-full mx-auto px-4 sm:px-6 lg:px-8 lg:h-[calc(100vh-120px)] overflow-hidden">
+        <div className="h-full overflow-hidden">
+          <ScrumDashboard />
         </div>
       </main>
 

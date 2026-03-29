@@ -2,10 +2,12 @@ use std::path::Path;
 use tauri::AppHandle;
 
 pub const BASE_RULE_CONTENT: &str = r#"# コーディング規約・エージェントルール
-- AIはTypeScriptで厳格な型定義を利用し、React関数コンポーネントとHooksを用いること。
-- DBやStoreの更新時には、必ずUIへの即時反映（リアクティビティ確保）を行うこと。
+- TypeScriptでは厳格な型定義を利用し、`any`の利用は明示的に禁止すること。React関数コンポーネントとHooksを用いること。
+- DBやStoreの更新時には、必ず関連するStateを同期し、UIへの即時反映（リアクティビティ確保）を行うこと。
 - アプローチを決定する際は必ずPO（人間）の承認を得ること。
 - 日本語で自然なUIを構築すること。
+- 実装完了時は必ず `walkthrough.md` を出力し、「変更内容」「テスト手順」「検証結果」を明記してPOへ手動検証を依頼すること。
+- チャットセッションを終了する際は、必ず `handoff.md` を更新して現在の進捗と残タスクなどのコンテキストを維持すること。
 "#;
 
 #[tauri::command]

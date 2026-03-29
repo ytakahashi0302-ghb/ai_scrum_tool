@@ -36,6 +36,11 @@ pub struct ChatInceptionResponse {
     pub generated_document: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChatTaskResponse {
+    pub reply: String,
+}
+
 async fn get_api_key_and_provider(app: &AppHandle, provider_override: Option<String>) -> Result<(String, String), String> {
     let store = app.store("settings.json").map_err(|e| format!("Failed to access store: {}", e))?;
     
@@ -159,7 +164,7 @@ pub async fn generate_tasks_from_story(
         text_content
     } else {
         let body = serde_json::json!({
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-haiku-4-5-20251001",
             "max_tokens": 1500,
             "system": "You are an expert Agile Scrum Master and Developer. Break down stories into practical, technical, actionable tasks.",
             "messages": [
@@ -332,7 +337,7 @@ pub async fn refine_idea(
         }));
 
         let body = serde_json::json!({
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-haiku-4-5-20251001",
             "max_tokens": 2000,
             "system": system_prompt,
             "messages": messages
@@ -475,7 +480,7 @@ pub async fn chat_inception(
         }
 
         let body = serde_json::json!({
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-haiku-4-5-20251001",
             "max_tokens": 2048,
             "system": system_prompt,
             "messages": messages
@@ -498,6 +503,126 @@ pub async fn chat_inception(
 
     let cleaned_content = content.replace("```json\n", "").replace("```json", "").replace("\n```", "").replace("```", "").trim().to_string();
     let response: ChatInceptionResponse = serde_json::from_str(&cleaned_content)
+        .map_err(|e| format!("Failed to parse JSON: {}\nExtracted String: {}", e, cleaned_content))?;
+
+    Ok(response)
+}
+
+#[tauri::command]
+pub async fn chat_with_task_ai(
+    app: AppHandle,
+    project_id: String,
+    task_id: String,
+    assignee_type: String,
+    messages_history: Vec<Message>,
+) -> Result<ChatTaskResponse, String> {
+    let (api_key, provider) = get_api_key_and_provider(&app, None).await?;
+    let context_md = crate::db::build_project_context(&app, &project_id).await.unwrap_or_default();
+
+    let query_task = "SELECT * FROM tasks WHERE id = ?";
+    let tasks = crate::db::select_query::<crate::db::Task>(&app, query_task, vec![serde_json::to_value(&task_id).unwrap()]).await?;
+    let task = tasks.first().ok_or("Task not found")?;
+
+    let query_story = "SELECT * FROM stories WHERE id = ?";
+    let stories = crate::db::select_query::<crate::db::Story>(&app, query_story, vec![serde_json::to_value(&task.story_id).unwrap()]).await?;
+    let story = stories.first().ok_or("Story not found")?;
+
+    let system_prompt = format!(
+"あなたは単なるアシスタントではなく、このタスクにアサインされた優秀な専属「{}」です。
+既存のコンテキストとルールを守り、プロフェッショナルとして具体的なコードや解決策を提案してください。
+
+【対象のタスク情報】
+- Task Title: {}
+- Task Description: {}
+
+【親ストーリー情報】
+- Story Title: {}
+- Story Description: {}
+- Acceptance Criteria: {}
+
+【プロジェクト全体のコンテキスト】
+{}
+
+【制約事項】
+1. あなたは担当のAIとしての自覚を持ち、プロの視点から実装や解決策（コードブロックを含む）を提案してください。
+2. 出力は必ず以下のJSON形式のみとし、前後の挨拶やマークダウンブロック(```json)は含めないでください。
+
+{{
+  \"reply\": \"ユーザーへの返信チャットメッセージ\"
+}}", 
+        assignee_type,
+        task.title, task.description.as_deref().unwrap_or(""),
+        story.title, story.description.as_deref().unwrap_or(""), story.acceptance_criteria.as_deref().unwrap_or(""),
+        context_md
+    );
+
+    let client = Client::new();
+    
+    let content = if provider == "gemini" {
+        let mut contents = Vec::new();
+        for msg in messages_history {
+            let role = if msg.role == "user" { "user" } else { "model" };
+            contents.push(serde_json::json!({
+                "role": role,
+                "parts": [{ "text": msg.content }]
+            }));
+        }
+
+        let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}", api_key);
+        let body = serde_json::json!({
+            "systemInstruction": {
+                "parts": [{ "text": system_prompt }]
+            },
+            "contents": contents,
+            "generationConfig": {
+                "maxOutputTokens": 4096,
+                "responseMimeType": "application/json"
+            }
+        });
+
+        let res = client.post(&url).header("content-type", "application/json").json(&body).send().await
+            .map_err(|e| format!("Network request failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let text = res.text().await.unwrap_or_default();
+            return Err(format!("Gemini API Request Failed ({}) - {}", status, text));
+        }
+
+        let res_json: serde_json::Value = res.json().await.map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        res_json.get("candidates").and_then(|c| c.as_array()).and_then(|arr| arr.get(0)).and_then(|c| c.get("content")).and_then(|c| c.get("parts")).and_then(|p| p.as_array()).and_then(|arr| arr.get(0)).and_then(|p| p.get("text")).and_then(|t| t.as_str())
+            .ok_or_else(|| format!("Extract text failed"))?.to_string()
+    } else {
+        let mut messages = Vec::new();
+        for msg in messages_history {
+            let role = if msg.role == "user" { "user" } else { "assistant" };
+            messages.push(serde_json::json!({ "role": role, "content": msg.content }));
+        }
+
+        let body = serde_json::json!({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 4096,
+            "system": system_prompt,
+            "messages": messages
+        });
+
+        let res = client.post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", api_key).header("anthropic-version", "2023-06-01").header("content-type", "application/json")
+            .json(&body).send().await.map_err(|e| format!("Network request failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let text = res.text().await.unwrap_or_default();
+            return Err(format!("Anthropic API Request Failed ({}) - {}", status, text));
+        }
+
+        let res_json: serde_json::Value = res.json().await.map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        res_json.get("content").and_then(|c| c.as_array()).and_then(|arr| arr.get(0)).and_then(|c| c.get("text")).and_then(|t| t.as_str())
+            .ok_or_else(|| format!("Extract text failed"))?.to_string()
+    };
+
+    let cleaned_content = content.replace("```json\n", "").replace("```json", "").replace("\n```", "").replace("```", "").trim().to_string();
+    let response: ChatTaskResponse = serde_json::from_str(&cleaned_content)
         .map_err(|e| format!("Failed to parse JSON: {}\nExtracted String: {}", e, cleaned_content))?;
 
     Ok(response)

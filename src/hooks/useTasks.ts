@@ -40,6 +40,7 @@ export function useTasks() {
                 title: task.title,
                 description: task.description,
                 status: task.status,
+                assigneeType: task.assignee_type,
                 projectId: currentProjectId
             });
             await fetchTasks();
@@ -51,27 +52,14 @@ export function useTasks() {
     }, [fetchTasks, currentProjectId]);
 
     const updateTaskStatus = useCallback(async (taskId: string, status: Task['status']) => {
-        // 楽観的UIによるフロントエンドStateの先行更新
-        let previousTask: Task | undefined;
-        setTasks(prev => {
-            previousTask = prev.find(t => t.id === taskId);
-            return prev.map(t => t.id === taskId ? { ...t, status } : t);
-        });
-
         try {
             await invoke('update_task_status', { id: taskId, status });
-            // 成功時は再取得（fetchTasks）をスキップし、dnd-kitのフリッカー（チラつき）を防止する
+            await fetchTasks();
         } catch (err) {
             console.error('Failed to update task status', err);
-            // エラー発生時は元のStateにロールバックする
-            setTasks(prev =>
-                prev.map(t =>
-                    t.id === taskId && previousTask ? { ...t, status: previousTask.status } : t
-                )
-            );
-            toast.error('ステータスの更新に失敗しました。変更は元に戻されました。');
+            toast.error('ステータスの更新に失敗しました。');
         }
-    }, []);
+    }, [fetchTasks]);
 
     const updateTask = useCallback(async (task: Task) => {
         try {
@@ -79,7 +67,8 @@ export function useTasks() {
                 id: task.id,
                 title: task.title,
                 description: task.description,
-                status: task.status
+                status: task.status,
+                assigneeType: task.assignee_type
             });
             await fetchTasks();
         } catch (err) {

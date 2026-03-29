@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useSprintTimer } from '../context/SprintTimerContext';
-import { useSprintArchive } from '../hooks/useSprintArchive';
 import { Play, Pause, RotateCcw, CheckCircle, AlertTriangle, BellRing, Loader2 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { useScrum } from '../context/ScrumContext';
@@ -31,10 +30,10 @@ export function SprintTimer() {
         resetSprint
     } = useSprintTimer();
 
-    const { archiveSprint, isArchiving } = useSprintArchive();
-    const { refresh } = useScrum();
+    const { refresh, sprints, completeSprint: completeScrumSprint } = useScrum();
+    const [isArchiving, setIsArchiving] = useState(false);
 
-    const [notification, setNotification] = useState<string | null>(null);
+    const [notificationMsg, setNotification] = useState<string | null>(null);
     const [dismissedTimeUp, setDismissedTimeUp] = useState(false);
 
     useEffect(() => {
@@ -60,11 +59,21 @@ export function SprintTimer() {
 
     const handleComplete = async () => {
         if (status === 'RUNNING' || status === 'PAUSED' || status === 'TIME_UP') {
-            const startedAt = Date.now() - (durationMs - remainingTimeMs);
-            const success = await archiveSprint(startedAt, Date.now(), durationMs);
-            if (success) {
+            const activeSprint = sprints.find(s => s.status === 'Active');
+            if (!activeSprint) {
+                alert('アクティブなスプリントが見つかりません。');
+                return;
+            }
+            
+            setIsArchiving(true);
+            try {
+                await completeScrumSprint(activeSprint.id, Date.now());
                 await storeCompleteSprint();
                 await refresh();
+            } catch (error) {
+                console.error('Failed to complete sprint', error);
+            } finally {
+                setIsArchiving(false);
             }
         }
     };
@@ -157,14 +166,14 @@ export function SprintTimer() {
             </div>
 
             {/* Notification Toast for Daily Scrum */}
-            {notification && (
+            {notificationMsg && (
                 <div className="fixed bottom-6 right-6 bg-white border border-blue-200 shadow-2xl rounded-xl p-5 flex items-start gap-4 z-50 animate-in slide-in-from-bottom-5 fade-in duration-300">
                     <div className="bg-blue-100 text-blue-600 p-2.5 rounded-full flex-shrink-0 mt-0.5">
                         <BellRing size={20} className="animate-pulse" />
                     </div>
                     <div>
                         <h4 className="font-bold text-gray-900 text-sm">デイリースクラム (Mini-Retro)</h4>
-                        <p className="text-gray-600 text-sm mt-1">{notification}</p>
+                        <p className="text-gray-600 text-sm mt-1">{notificationMsg}</p>
                     </div>
                 </div>
             )}

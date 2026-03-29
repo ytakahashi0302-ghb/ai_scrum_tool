@@ -35,13 +35,19 @@ export function InceptionDeck() {
         const initDeck = async () => {
             if (!currentProject?.local_path) return;
             try {
-                // Ensure base rule exists
-                await invoke('generate_base_rule', { localPath: currentProject.local_path });
-
-                // Read files
+                // Read files first to check for existing context
                 const context = await invoke<string | null>('read_inception_file', { localPath: currentProject.local_path, filename: 'PRODUCT_CONTEXT.md' });
                 const arch = await invoke<string | null>('read_inception_file', { localPath: currentProject.local_path, filename: 'ARCHITECTURE.md' });
-                const rule = await invoke<string | null>('read_inception_file', { localPath: currentProject.local_path, filename: 'Rule.md' });
+                let rule = await invoke<string | null>('read_inception_file', { localPath: currentProject.local_path, filename: 'Rule.md' });
+
+                const hasExistingFiles = !!(context || arch || rule);
+                
+                // If completely new (no files exist), generate the base rule
+                if (!hasExistingFiles) {
+                    await invoke('generate_base_rule', { localPath: currentProject.local_path });
+                    // Read the newly generated rule file
+                    rule = await invoke<string | null>('read_inception_file', { localPath: currentProject.local_path, filename: 'Rule.md' });
+                }
 
                 setFileContents({
                     CONTEXT: context || '',
@@ -50,7 +56,7 @@ export function InceptionDeck() {
                 });
 
                 let initialMessage = "Phase 1 を開始します。\nプロダクトのコア価値とターゲット (Why) について教えてください。";
-                if (context || arch || rule) {
+                if (hasExistingFiles) {
                     initialMessage = "既存のファイルが見つかりました。\n右のプレビューを確認し、この内容をベースに修正を加えますか？それとも既存のまま次へ進みますか？\n" + initialMessage;
                 }
                 setMessages([{ role: 'assistant', content: initialMessage }]);

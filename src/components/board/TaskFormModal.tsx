@@ -6,11 +6,13 @@ import { Button } from '../ui/Button';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import toast from 'react-hot-toast';
+import { TaskChatPane } from './TaskChatPane';
 
 export interface TaskFormData {
     title: string;
     description: string;
     status: 'TODO' | 'IN_PROGRESS' | 'DONE';
+    assigneeType: string | null;
 }
 
 interface TaskFormModalProps {
@@ -20,6 +22,7 @@ interface TaskFormModalProps {
     onDelete?: () => Promise<void>;
     initialData?: Partial<TaskFormData>;
     title: string;
+    taskId?: string; // Optional for new tasks, required for Chat pane
 }
 
 export const TaskFormModal: React.FC<TaskFormModalProps> = ({
@@ -28,12 +31,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     onSave,
     onDelete,
     initialData,
-    title
+    title,
+    taskId
 }) => {
     const [formData, setFormData] = useState<TaskFormData>({
         title: '',
         description: '',
-        status: 'TODO'
+        status: 'TODO',
+        assigneeType: null
     });
     const [errors, setErrors] = useState<Partial<Record<keyof TaskFormData, string>>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -44,7 +49,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             setFormData({
                 title: initialData?.title || '',
                 description: initialData?.description || '',
-                status: initialData?.status || 'TODO'
+                status: initialData?.status || 'TODO',
+                assigneeType: initialData?.assigneeType || null
             });
             setErrors({});
             // Set default tab based on whether description exists
@@ -81,8 +87,16 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} width="lg" title={title}>
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <Modal 
+            isOpen={isOpen} 
+            onClose={onClose} 
+            width={formData.assigneeType && formData.assigneeType.startsWith('AI') ? '5xl' : 'lg'} 
+            title={title}
+        >
+            <div className={`flex gap-6 ${formData.assigneeType && formData.assigneeType.startsWith('AI') ? 'flex-row' : 'flex-col'}`}>
+                {/* Left Pane (or Full if no AI) */}
+                <div className={`flex flex-col gap-4 ${formData.assigneeType && formData.assigneeType.startsWith('AI') ? 'flex-1 min-w-[50%]' : 'w-full'}`}>
+                    <form id="task-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <Input
                     label="タイトル"
                     value={formData.title}
@@ -133,17 +147,32 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     )}
                 </div>
 
-                <div className="flex flex-col gap-1 w-full">
-                    <label className="text-sm font-medium text-gray-700">ステータス</label>
-                    <select
-                        value={formData.status}
-                        onChange={(e) => setFormData(p => ({ ...p, status: e.target.value as TaskFormData['status'] }))}
-                        className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                    >
-                        <option value="TODO">未着手 (To Do)</option>
-                        <option value="IN_PROGRESS">進行中 (In Progress)</option>
-                        <option value="DONE">完了 (Done)</option>
-                    </select>
+                <div className="flex gap-4 w-full">
+                    <div className="flex flex-col gap-1 w-1/2">
+                        <label className="text-sm font-medium text-gray-700">ステータス</label>
+                        <select
+                            value={formData.status}
+                            onChange={(e) => setFormData(p => ({ ...p, status: e.target.value as TaskFormData['status'] }))}
+                            className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                        >
+                            <option value="TODO">未着手 (To Do)</option>
+                            <option value="IN_PROGRESS">進行中 (In Progress)</option>
+                            <option value="DONE">完了 (Done)</option>
+                        </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1 w-1/2">
+                        <label className="text-sm font-medium text-gray-700">担当者 (Assignee)</label>
+                        <select
+                            value={formData.assigneeType || ''}
+                            onChange={(e) => setFormData(p => ({ ...p, assigneeType: e.target.value === '' ? null : e.target.value }))}
+                            className="flex h-10 w-full rounded-md border border-gray-300 bg-emerald-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                        >
+                            <option value="">未設定 (Human)</option>
+                            <option value="AI Developer">AI Developer</option>
+                            <option value="AI Designer">AI Designer</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div className="flex justify-between items-center mt-4 pt-4 border-t">
@@ -167,12 +196,21 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
                             キャンセル
                         </Button>
-                        <Button type="submit" variant="primary" disabled={isSubmitting}>
+                        <Button type="submit" form="task-form" variant="primary" disabled={isSubmitting}>
                             {isSubmitting ? '保存中...' : '保存'}
                         </Button>
                     </div>
                 </div>
-            </form>
+                </form>
+                </div> {/* End Left Pane */}
+
+                {/* Right Pane (Chat) */}
+                {formData.assigneeType && formData.assigneeType.startsWith('AI') && taskId && (
+                    <div className="flex-1 w-full max-h-[70vh] flex flex-col min-w-[30%]">
+                        <TaskChatPane taskId={taskId} assigneeType={formData.assigneeType} />
+                    </div>
+                )}
+            </div>
         </Modal>
     );
 };
