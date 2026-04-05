@@ -1,4 +1,5 @@
 mod ai;
+mod ai_tools;
 mod db;
 mod inception;
 mod pty_commands;

@@ -153,3 +153,55 @@ pub async fn chat_with_history(
         }
     }
 }
+
+pub async fn chat_team_leader_with_tools(
+    app: &AppHandle,
+    provider: &AiProvider,
+    api_key: &str,
+    system_prompt: &str,
+    user_input: &str,
+    chat_history: Vec<RigMessage>,
+    project_id: &str,
+) -> Result<String, String> {
+    let tool = crate::ai_tools::CreateStoryAndTasksTool {
+        app: app.clone(),
+        project_id: project_id.to_string(),
+    };
+
+    match provider {
+        AiProvider::Anthropic => {
+            let client = anthropic::Client::new(api_key)
+                .map_err(|e| format!("Failed to create Anthropic client: {}", e))?;
+            let agent = client
+                .agent("claude-haiku-4-5-20251001")
+                .preamble(system_prompt)
+                .max_tokens(4096)
+                .tool(tool)
+                .build();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                agent.chat(user_input, chat_history),
+            )
+            .await
+            .map_err(|_| "Anthropic API timed out after 60 seconds".to_string())?
+            .map_err(|e| format!("Anthropic error: {}", e))
+        }
+        AiProvider::Gemini => {
+            let client = gemini::Client::new(api_key)
+                .map_err(|e| format!("Failed to create Gemini client: {}", e))?;
+            let agent = client
+                .agent(GEMINI_2_0_FLASH)
+                .preamble(system_prompt)
+                .max_tokens(4096)
+                .tool(tool)
+                .build();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                agent.chat(user_input, chat_history),
+            )
+            .await
+            .map_err(|_| "Gemini API timed out after 60 seconds".to_string())?
+            .map_err(|e| format!("Gemini error: {}", e))
+        }
+    }
+}

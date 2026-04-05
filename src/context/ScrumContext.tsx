@@ -3,6 +3,7 @@ import { useStories } from '../hooks/useStories';
 import { useTasks } from '../hooks/useTasks';
 import { useSprints } from '../hooks/useSprints';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Story, Task, Sprint } from '../types';
 
 interface ScrumContextType {
@@ -60,6 +61,16 @@ export function ScrumProvider({ children }: { children: ReactNode }) {
         fetchStories();
         fetchTasks();
         fetchSprints();
+
+        const unlistenPromise = listen('kanban-updated', () => {
+            fetchStories();
+            fetchTasks();
+            fetchSprints();
+        });
+
+        return () => {
+            unlistenPromise.then((unlisten) => unlisten());
+        };
     }, [fetchStories, fetchTasks, fetchSprints]);
 
     const refresh = async () => {

@@ -1,0 +1,60 @@
+    Checking ai-scrum-tool v0.1.0 (C:\Users\green\Documents\workspaces\ai-scrum-tool\src-tauri)
+error[E0432]: unresolved import `crate::db::StoryDraft`
+ --> src\ai_tools.rs:1:42
+  |
+1 | use crate::db::{insert_story_with_tasks, StoryDraft, TaskDraft};
+  |                                          ^^^^^^^^^^ no `StoryDraft` in `db`
+  |
+  = help: consider importing this struct instead:
+          crate::ai::StoryDraft
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `thiserror`
+  --> src\ai_tools.rs:15:17
+   |
+15 | #[derive(Debug, thiserror::Error)]
+   |                 ^^^^^^^^^ use of unresolved module or unlinked crate `thiserror`
+
+error: cannot find attribute `error` in this scope
+  --> src\ai_tools.rs:16:3
+   |
+16 | #[error("Tool error: {0}")]
+   |   ^^^^^
+   |
+help: `error` is an attribute that can be used by the derive macro `Error`, you might be missing a `derive` attribute
+   |
+17 + #[derive(Error)]
+18 | pub struct CustomToolError(pub String);
+   |
+
+error[E0277]: the trait bound `CustomToolError: StdError` is not satisfied
+   --> src\ai_tools.rs:27:18
+    |
+ 27 |     type Error = CustomToolError;
+    |                  ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+help: the trait `StdError` is not implemented for `CustomToolError`
+   --> src\ai_tools.rs:17:1
+    |
+ 17 | pub struct CustomToolError(pub String);
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `rig::tool::Tool::Error`
+   --> C:\Users\green\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rig-core-0.33.0\src\tool\mod.rs:116:17
+    |
+116 |     type Error: std::error::Error + WasmCompatSend + WasmCompatSync + 'static;
+    |                 ^^^^^^^^^^^^^^^^^ required by this bound in `Tool::Error`
+
+error[E0271]: expected `impl Future<Output = Value>` to be a future that resolves to `ToolDefinition`, but it resolves to `Value`
+   --> src\ai_tools.rs:31:52
+    |
+ 31 |     async fn definition(&self, _prompt: String) -> serde_json::Value {
+    |                                                    ^^^^^^^^^^^^^^^^^ expected `ToolDefinition`, found `Value`
+    |
+note: required by a bound in `rig::tool::Tool::definition::{anon_assoc#0}`
+   --> C:\Users\green\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rig-core-0.33.0\src\tool\mod.rs:132:22
+    |
+132 |     ) -> impl Future<Output = ToolDefinition> + WasmCompatSend + WasmCompatSync;
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Tool::definition::{anon_assoc#0}`
+
+Some errors have detailed explanations: E0271, E0277, E0432, E0433.
+For more information about an error, try `rustc --explain E0271`.
+error: could not compile `ai-scrum-tool` (lib) due to 5 previous errors

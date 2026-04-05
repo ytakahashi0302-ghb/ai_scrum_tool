@@ -134,14 +134,19 @@ pub async fn chat_with_team_leader(
     let _context_md = crate::db::build_project_context(&app, &project_id).await.unwrap_or_default();
 
     let chat_history = crate::rig_provider::convert_messages(&messages_history);
-    let system_prompt = "あなたはScrum TeamのAI Team Leaderです。必ず以下の形式のJSONのみで回答してください。\n\n{\"reply\": \"メッセージ内容\"}";
+    let system_prompt = format!(
+        "あなたはScrum TeamのAI Team Leaderです。ユーザーから機能要件や追加タスクの要望があった場合、自身が持つツール (`create_story_and_tasks`) を呼び出して、ストーリーとサブタスク群をデータベースに自動登録してください。\n\n【現在のプロダクトの状況（既存バックログ等）】\n{}\n\n【重要】ツール実行に失敗した場合は、エラー内容を確認して原因をユーザーに報告、または代替策を考えてください。ツールが失敗したからといって、決してユーザーに手動での登録作業を丸投げしないでください。\n\n会話の返答は必ず以下の形式のJSONオブジェクトのみで返してください。\n\n{{\"reply\": \"ツール実行結果やユーザーへのメッセージ内容\"}}",
+        _context_md
+    );
 
-    let raw_text = crate::rig_provider::chat_with_history(
+    let raw_text = crate::rig_provider::chat_team_leader_with_tools(
+        &app,
         &provider,
         &api_key,
-        system_prompt,
+        &system_prompt,
         "", // Empty user input - using chat history instead
         chat_history,
+        &project_id,
     )
     .await?;
 
@@ -152,9 +157,12 @@ pub async fn chat_with_team_leader(
         &raw_text
     };
 
-    let resp: ChatTaskResponse = serde_json::from_str(json_str).map_err(|e| {
-        format!("JSON parse error: {}. Raw: {}", e, raw_text)
-    })?;
+    let resp: ChatTaskResponse = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(_) => ChatTaskResponse {
+            reply: raw_text, // JSONでない自然言語の場合はそのまま返却するフォールバック
+        },
+    };
 
     Ok(resp)
 }

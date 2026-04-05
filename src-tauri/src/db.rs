@@ -582,7 +582,7 @@ pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<
                 desc
             };
             let desc_str = if short_desc.is_empty() { String::new() } else { format!(": {}", short_desc) };
-            out.push_str(&format!("- Story: {}{} (Status: {})\n", story.title, desc_str, story.status));
+            out.push_str(&format!("- Story [ID: {}]: {}{} (Status: {})\n", story.id, story.title, desc_str, story.status));
             
             for task in tasks_all.iter().filter(|t| t.story_id == story.id) {
                 let status_icon = match task.status.as_str() {
@@ -624,3 +624,75 @@ pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<
     Ok(md)
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TaskDraft {
+    pub title: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StoryDraftInput {
+    pub target_story_id: Option<String>,
+    pub title: String,
+    pub description: Option<String>,
+    pub acceptance_criteria: Option<String>,
+}
+
+pub async fn insert_story_with_tasks(
+    app: &AppHandle,
+    project_id: &str,
+    story_draft: StoryDraftInput,
+    tasks_draft: Vec<TaskDraft>,
+) -> Result<String, String> {
+    let instances = app.state::<DbInstances>();
+    let db_instances = instances.0.read().await;
+    let wrapper = db_instances.get(DB_STRING).ok_or("Database instance not found")?;
+    
+    #[allow(unreachable_patterns)]
+    let pool = match wrapper {
+        DbPool::Sqlite(p) => p,
+        _ => return Err("Not an sqlite database".to_string()),
+    };
+
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    let story_id = if let Some(existing_id) = story_draft.target_story_id {
+        existing_id
+    } else {
+        let new_id = uuid::Uuid::new_v4().to_string();
+        let q_story = "INSERT INTO stories (id, project_id, title, description, acceptance_criteria, status) VALUES (?, ?, ?, ?, ?, ?)";
+        
+        let _ = sqlx::query(q_story)
+            .bind(&new_id)
+            .bind(project_id)
+            .bind(&story_draft.title)
+            .bind(&story_draft.description)
+            .bind(&story_draft.acceptance_criteria)
+            .bind("Backlog")
+            .execute(&mut *tx).await.map_err(|e| {
+                eprintln!("SQLx Insert Story Error: {:?}", e);
+                e.to_string()
+            })?;
+        new_id
+    };
+
+    for task in tasks_draft {
+        let task_id = uuid::Uuid::new_v4().to_string();
+        let q_task = "INSERT INTO tasks (id, project_id, story_id, title, description, status) VALUES (?, ?, ?, ?, ?, ?)";
+        let _ = sqlx::query(q_task)
+            .bind(&task_id)
+            .bind(project_id)
+            .bind(&story_id)
+            .bind(&task.title)
+            .bind(&task.description)
+            .bind("To Do")
+            .execute(&mut *tx).await.map_err(|e| {
+                eprintln!("SQLx Insert Task Error: {:?}", e);
+                e.to_string()
+            })?;
+    }
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    Ok(story_id)
+}
