@@ -84,14 +84,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const deleteProject = useCallback(async (id: string) => {
         try {
             await invoke('delete_project', { id });
-            await fetchProjects();
+            // fetchProjects の前に残存プロジェクトを計算してフォールバック先を決定する
+            const remaining = await invoke<Project[]>('get_projects');
+            setProjects(remaining);
+            // 削除対象が currentProject だった場合のみ切り替え
+            setCurrentProjectIdState(prev => {
+                if (prev === id) {
+                    return remaining.length > 0 ? remaining[0].id : 'default';
+                }
+                return prev;
+            });
             toast.success('プロジェクトを削除しました');
         } catch (err) {
             console.error('Failed to delete project', err);
             toast.error(`プロジェクトの削除に失敗しました: ${err}`);
             throw err;
         }
-    }, [fetchProjects]);
+    }, []);
 
     const value = {
         projects,

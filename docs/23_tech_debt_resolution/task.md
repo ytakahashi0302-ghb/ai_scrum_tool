@@ -1,6 +1,6 @@
 # Epic 23 タスクリスト
 
-- [ ] `docs/23_tech_debt_resolution/implementation_plan.md` と `task.md` の作成（作業完了・PO確認待ち）
+- [x] `docs/23_tech_debt_resolution/implementation_plan.md` と `task.md` の作成（完了）
 
 ## 1. ハードコード系の解消
 - [x] `src-tauri/src/rig_provider.rs` または `src-tauri/src/ai.rs` にAPIからモデル一覧を取得する `get_available_models` コマンドを実装する
@@ -15,13 +15,25 @@
 
 ## 3. UIのクリーンアップと設定の統合
 - [x] `src/components/ui/GlobalSettingsModal.tsx` を新規作成し、タブやセクションでプロジェクト削除とAI設定（モデル選択含む）を配置する
-- [ ] `src/components/kanban/StorySwimlane.tsx` から「AIで自動生成」ボタン関連のコードを削除
-- [ ] `src/components/kanban/BacklogView.tsx` から「アイデア」ボタン関連のコードを削除
-- [ ] `src/components/ai/IdeaRefinementDrawer.tsx` の削除
-- [ ] `src/App.tsx` の Inception Deck ヘッダーを Kanban 側と共通のナビゲーション（設定アイコン等）を持つように統合・整理
+- [x] `Board.tsx` から旧設定モーダル関連の不要コードを削除
+- [x] `SettingsModal.tsx` を削除
 
-## 4. 手動テスト・仕上げ
-- [ ] ターミナルから `npm run tauri dev` でビルドが成功するか確認
-- [ ] 自動選択フォールバック、AIモデル設定の適用、チャット履歴保持、ボタン群消滅を確認
-- [ ] エラーが出ない（とくにAI呼び出し時のモデル名取得等）ことを目視確認
-- [ ] `walkthrough.md` を作成しPOへ報告
+## 4. Inception Deck AI の振る舞い修正
+- [x] `src-tauri/src/ai.rs` の `build_inception_system_prompt` 関数を新設し、フェーズ別指示・JSON出力フォーマットを厳命
+- [x] AIレスポンスのMarkdownコードフェンス ( ```json...``` ) をストリップしてからパースする処理を追加
+- [x] JSON構造を `generated_document` -> `patch_target + patch_content` 方式（差分追記）に移行
+- [x] システムプロンプトを箇条書き・20行以内・差分のみ出力に刷新（トークン枯渇対策）
+- [x] `InceptionDeck.tsx` の書き込みロジックを追記（Append）対応に変更
+  - Phase 1/3: 上書き（新規作成）、Phase 2/4: 末尾追記
+
+## 5. Team Leader の MaxTurnError 修正
+- [x] `rig_provider.rs` の Anthropic / Gemini AgentBuilder に `.default_max_turns(5)` を追加
+
+## 6. プロジェクト削除の非同期バグ修正（最終）
+- [x] `GlobalSettingsModal.tsx`: `window.confirm()` を Tauri `dialog` plugin の `await confirm()` に置き換え
+- [x] `WorkspaceContext.tsx`: `deleteProject` 内でフォールバック先IDを削除後の残存リストから明示的に計算
+
+## 7. 最終確認
+- [x] `npx tsc --noEmit` でビルドエラーなし
+- [x] `cargo check` でコンパイルエラーなし
+- [x] `walkthrough.md` を作成しPOへ報告

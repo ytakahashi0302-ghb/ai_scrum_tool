@@ -5,6 +5,7 @@ import { Button } from './Button';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { invoke } from '@tauri-apps/api/core';
 import { load } from '@tauri-apps/plugin-store';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import toast from 'react-hot-toast';
 
 interface GlobalSettingsModalProps {
@@ -118,14 +119,19 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
             toast.error('このプロジェクトは削除できません');
             return;
         }
-        
-        if (confirm('本当にこのプロジェクトを削除しますか？紐づくすべてのバックログやスプリントデータが消去されます。')) {
-            try {
-                await deleteProject(currentProjectId);
-                onClose();
-            } catch (e) {
-                // Error toast is handled in WorkspaceContext
-            }
+
+        // Tauri dialog plugin の confirm を await で必ず確認を待つ
+        const confirmed = await confirm(
+            '本当にこのプロジェクトを削除しますか？\n紐づくすべてのバックログやスプリントデータが消去されます。',
+            { title: 'プロジェクトの削除確認', kind: 'warning' }
+        );
+        if (!confirmed) return;
+
+        try {
+            await deleteProject(currentProjectId);
+            onClose();
+        } catch (e) {
+            // Error toast は WorkspaceContext 側で処理
         }
     };
 

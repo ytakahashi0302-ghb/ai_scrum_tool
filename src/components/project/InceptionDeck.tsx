@@ -123,7 +123,12 @@ export function InceptionDeck() {
         setIsProcessing(true);
 
         try {
-            const response = await invoke<{ reply: string, is_finished: boolean, generated_document: string | null }>('chat_inception', {
+            const response = await invoke<{
+                reply: string;
+                is_finished: boolean;
+                patch_target: string | null;
+                patch_content: string | null;
+            }>('chat_inception', {
                 projectId: currentProject.id,
                 phase: currentPhase,
                 messagesHistory: newMessages,
@@ -131,41 +136,56 @@ export function InceptionDeck() {
 
             setMessages([...newMessages, { role: 'assistant', content: response.reply }]);
 
-            if (response.is_finished && response.generated_document) {
-                // Write document and refresh preview
-                const filename = currentPhase <= 2 ? 'PRODUCT_CONTEXT.md' 
-                                : currentPhase === 3 ? 'ARCHITECTURE.md' 
-                                : 'Rule.md';
-                const append = currentPhase === 4; // Phase 4 appends to Rule.md
+            if (response.is_finished && response.patch_target && response.patch_content) {
+                const filename = response.patch_target; // AI が指定したファイル名を使用
 
-                await invoke('write_inception_file', { 
-                    localPath: currentProject.local_path, 
-                    filename, 
-                    content: response.generated_document,
-                    append 
+                // Phase 2 (PRODUCT_CONTEXT.md追記) / Phase 4 (Rule.md追記) は append=true
+                const append = currentPhase === 2 || currentPhase === 4;
+
+                await invoke('write_inception_file', {
+                    localPath: currentProject.local_path,
+                    filename,
+                    content: response.patch_content,
+                    append,
                 });
-                
+
                 toast.success(`${filename} を更新しました`);
 
-                // Reload contents
-                const updatedContent = await invoke<string | null>('read_inception_file', { localPath: currentProject.local_path, filename });
-                if (updatedContent) {
+                // fileContentsのStateを更新（追記 or 上書き）
+                const tabKey = filename === 'PRODUCT_CONTEXT.md' ? 'CONTEXT'
+                             : filename === 'ARCHITECTURE.md' ? 'ARCHITECTURE'
+                             : 'RULE';
+
+                if (append) {
+                    // 追記: 既存内容の末尾に patch_content を結合
                     setFileContents(prev => ({
                         ...prev,
-                        [activeTab]: updatedContent
+                        [tabKey]: prev[tabKey] + '\n' + response.patch_content,
                     }));
+                } else {
+                    // 上書き: ファイルから最新内容を再読み込み
+                    const updatedContent = await invoke<string | null>('read_inception_file', {
+                        localPath: currentProject.local_path,
+                        filename,
+                    });
+                    if (updatedContent) {
+                        setFileContents(prev => ({
+                            ...prev,
+                            [tabKey]: updatedContent,
+                        }));
+                    }
                 }
 
                 if (currentPhase < 5) {
                     const nextPhase = currentPhase + 1;
                     setCurrentPhase(nextPhase);
-                    
-                    const phaseStartMsg = "次のフェーズへ進みました。\n" + 
+
+                    const phaseStartMsg = "次のフェーズへ進みました。\n" +
                         (nextPhase === 2 ? "Phase 2 (Not List): やらないことリストについて決めていきましょう。" :
                          nextPhase === 3 ? "Phase 3 (What): 技術スタックとアーキテクチャの制約について教えてください。" :
                          nextPhase === 4 ? "Phase 4 (How): プロジェクト固有の開発ルールやAIへの追加ルールはありますか？" :
                          "Phase 5: 全てのドキュメントの生成が完了しました！");
-                    
+
                     setMessages(prev => [...prev, { role: 'assistant', content: phaseStartMsg }]);
                 }
             }

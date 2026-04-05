@@ -198,6 +198,7 @@ pub async fn chat_team_leader_with_tools(
                 .preamble(system_prompt)
                 .max_tokens(4096)
                 .tool(tool)
+                .default_max_turns(5)
                 .build();
             tokio::time::timeout(
                 std::time::Duration::from_secs(60),
@@ -215,6 +216,7 @@ pub async fn chat_team_leader_with_tools(
                 .preamble(system_prompt)
                 .max_tokens(4096)
                 .tool(tool)
+                .default_max_turns(5)
                 .build();
             tokio::time::timeout(
                 std::time::Duration::from_secs(60),
