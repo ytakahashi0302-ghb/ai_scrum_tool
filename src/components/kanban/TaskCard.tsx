@@ -2,9 +2,12 @@ import { useState, memo, useCallback, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task } from '../../types';
-import { MoreVertical } from 'lucide-react';
+import { MoreVertical, TerminalSquare } from 'lucide-react';
 import { TaskFormModal, TaskFormData } from '../board/TaskFormModal';
 import { useScrum } from '../../context/ScrumContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
+import { invoke } from '@tauri-apps/api/core';
+import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -13,7 +16,8 @@ interface TaskCardProps {
 }
 
 export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
-    const { updateTask, deleteTask } = useScrum();
+    const { updateTaskStatus, updateTask, deleteTask } = useScrum();
+    const { projects, currentProjectId } = useWorkspace();
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const {
         attributes,
@@ -33,6 +37,28 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
+    };
+
+    const handleLaunchClaude = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const currentProject = projects.find(p => p.id === currentProjectId);
+        if (!currentProject?.local_path) {
+            toast.error("ワークスペースのローカルパスが設定されていません。Settingsから設定してください。");
+            return;
+        }
+
+        try {
+            await invoke('execute_claude_task', {
+                taskId: task.id,
+                prompt: `以下のタスクを実装してください。タスクのゴールを達成するためのファイル変更を行ってください。\n\n# タスク名\n${task.title}\n\n# 詳細\n${task.description || '特になし'}\n\n作業を終える前にかならず変更点が意図通りか自己検証し、完了したら終了してください。`,
+                cwd: currentProject.local_path
+            });
+            await updateTaskStatus(task.id, 'In Progress');
+            toast.success("Claudeでの開発を開始しました (ターミナルをご確認ください)");
+        } catch (err: any) {
+            toast.error(`プロセス起動失敗: ${err}`);
+            window.dispatchEvent(new CustomEvent('claude_error', { detail: String(err) }));
+        }
     };
 
     return (
@@ -61,12 +87,21 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
                 )}
             </div>
 
-            <button
-                onClick={(e) => { e.stopPropagation(); setIsEditModalOpen(true); }}
-                className="absolute top-2 right-2 p-1 text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 hover:bg-gray-100 rounded transition-all"
-            >
-                <MoreVertical size={16} />
-            </button>
+            <div className="absolute top-2 right-2 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all z-10 bg-white/80 rounded backdrop-blur-sm p-0.5 shadow-sm">
+                <button
+                    onClick={handleLaunchClaude}
+                    className="p-1 text-blue-500 hover:text-white hover:bg-blue-500 rounded transition-colors"
+                    title="開発を実行 (Launch Claude)"
+                >
+                    <TerminalSquare size={16} />
+                </button>
+                <button
+                    onClick={(e) => { e.stopPropagation(); setIsEditModalOpen(true); }}
+                    className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                >
+                    <MoreVertical size={16} />
+                </button>
+            </div>
 
             <TaskFormModal
                 isOpen={isEditModalOpen}

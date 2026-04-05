@@ -197,11 +197,9 @@ function AppContent() {
                 </div>
               </button>
             </div>
-            {!isTerminalMinimized && (
-              <div className="flex-1 p-2 overflow-hidden relative bg-[#1e1e1e] animate-in fade-in duration-500">
-                <TerminalDock />
-              </div>
-            )}
+            <div className={`flex-1 p-2 overflow-hidden relative bg-[#1e1e1e] animate-in fade-in duration-500 ${isTerminalMinimized ? 'hidden' : 'block'}`}>
+              <TerminalDock />
+            </div>
           </div>
         </div>
 

@@ -5,7 +5,7 @@ import { Button } from './Button';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { invoke } from '@tauri-apps/api/core';
 import { load } from '@tauri-apps/plugin-store';
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { confirm, open } from '@tauri-apps/plugin-dialog';
 import toast from 'react-hot-toast';
 
 interface GlobalSettingsModalProps {
@@ -14,7 +14,8 @@ interface GlobalSettingsModalProps {
 }
 
 export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProps) {
-    const { currentProjectId, deleteProject } = useWorkspace();
+    const { currentProjectId, deleteProject, projects, updateProjectPath } = useWorkspace();
+    const currentProject = projects.find(p => p.id === currentProjectId);
     
     // Tabs state
     const [activeTab, setActiveTab] = useState<'general' | 'ai'>('ai');
@@ -34,6 +35,9 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
     const [anthropicModelsList, setAnthropicModelsList] = useState<string[]>([]);
     const [geminiModelsList, setGeminiModelsList] = useState<string[]>([]);
     const [isFetchingModels, setIsFetchingModels] = useState(false);
+    
+    // Path selection state
+    const [isSelectingPath, setIsSelectingPath] = useState(false);
 
     // Initial load
     useEffect(() => {
@@ -132,6 +136,29 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
             onClose();
         } catch (e) {
             // Error toast は WorkspaceContext 側で処理
+        }
+    };
+
+    const handleSelectFolder = async () => {
+        setIsSelectingPath(true);
+        try {
+            const selectedPath = await open({
+                directory: true,
+                multiple: false,
+                title: 'プロジェクトのディレクトリを選択してください'
+            });
+
+            if (selectedPath && typeof selectedPath === 'string') {
+                const result = await updateProjectPath(currentProjectId, selectedPath);
+                if (result.success) {
+                    toast.success('ワークスペースのディレクトリを設定しました');
+                }
+            }
+        } catch (error) {
+            console.error('Failed to select directory:', error);
+            toast.error('ディレクトリの選択に失敗しました');
+        } finally {
+            setIsSelectingPath(false);
         }
     };
 
@@ -322,6 +349,29 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
 
                 {activeTab === 'general' && (
                     <div className="space-y-6">
+                        <div className="p-4 rounded-lg border border-gray-200 bg-white">
+                            <h3 className="font-medium text-gray-900 mb-2">対象ディレクトリパス (Local Path)</h3>
+                            <p className="text-sm text-gray-500 mb-4">
+                                ClaudeCLIが自動開発を行う際の作業ディレクトリを指定してください。（ローカル環境の絶対パス）
+                            </p>
+                            <div className="flex items-center gap-3">
+                                <input 
+                                    type="text" 
+                                    readOnly 
+                                    value={currentProject?.local_path || '未設定'} 
+                                    className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm bg-gray-50 text-gray-700"
+                                    placeholder="パスが未設定です"
+                                />
+                                <Button 
+                                    onClick={handleSelectFolder} 
+                                    disabled={isSelectingPath}
+                                    variant="secondary"
+                                >
+                                    フォルダを選択
+                                </Button>
+                            </div>
+                        </div>
+
                         <div className="p-4 rounded-lg border border-red-200 bg-red-50">
                             <h3 className="font-medium text-red-800 flex items-center gap-2 mb-2">
                                 <AlertTriangle size={18} />

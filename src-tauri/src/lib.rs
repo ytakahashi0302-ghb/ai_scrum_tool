@@ -5,6 +5,7 @@ mod inception;
 mod pty_commands;
 mod pty_manager;
 mod rig_provider;
+mod claude_runner;
 use tauri_plugin_sql::{Builder as SqlBuilder, Migration, MigrationKind};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -76,6 +77,7 @@ pub fn run() {
                 .build(),
         )
         .manage(pty_manager::PtyManager::new())
+        .manage(claude_runner::ClaudeState::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -138,7 +140,9 @@ pub fn run() {
             rig_provider::get_available_models,
             pty_commands::pty_spawn,
             pty_commands::pty_execute,
-            pty_commands::pty_kill
+            pty_commands::pty_kill,
+            claude_runner::execute_claude_task,
+            claude_runner::kill_claude_process
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

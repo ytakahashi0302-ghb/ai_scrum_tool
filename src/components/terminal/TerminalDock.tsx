@@ -2,14 +2,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
-import { usePtySession } from '../../hooks/usePtySession';
+import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
+import { useScrum } from '../../context/ScrumContext';
+import { StopCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export const TerminalDock: React.FC = () => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<XTerm | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
-    const { sessionId, executeCommand } = usePtySession();
-    const [hasExecutedDummy, setHasExecutedDummy] = useState(false);
+    const { updateTaskStatus } = useScrum();
+    const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
     useEffect(() => {
         if (!terminalRef.current) return;
@@ -90,37 +94,81 @@ export const TerminalDock: React.FC = () => {
             fitAddonRef.current = null;
         };
     }, []);
-
-    // React to Session Ready and Exec Dummy Command
+    // Listen to Claude events (cancelled flag pattern for StrictMode safety)
     useEffect(() => {
-        if (sessionId && xtermRef.current && !hasExecutedDummy) {
-            setHasExecutedDummy(true);
-            const term = xtermRef.current;
-            
-            term.writeln(`\x1b[32m✔ PTY Session established\x1b[0m (ID: ${sessionId.substring(0, 8)}...)`);
-            term.writeln('\x1b[38;5;12m[MicroScrum AI]\x1b[0m Executing integration test: \x1b[33mecho Hello PTY\x1b[0m');
-            
-            // Allow stdout from Windows to interpret properly sometimes needing explicit shell depending on backend execution.
-            // Backend pty_execute runs `cmd.exe /C command` on Windows
-            executeCommand('echo Hello PTY')
-                .then(result => {
-                    term.write(result.stdout);
-                    if (result.stderr) {
-                        term.write('\x1b[31m' + result.stderr + '\x1b[0m');
-                    }
-                    if (result.exit_code !== 0) {
-                        term.writeln(`\n\x1b[31m[Process exited with code ${result.exit_code}]\x1b[0m`);
-                    } else {
-                        term.writeln('\n\x1b[32m✔ Integration test completed successfully.\x1b[0m');
-                    }
-                })
-                .catch(err => {
-                    term.writeln(`\n\x1b[31mCommand Execution Error: ${err}\x1b[0m`);
-                });
+        let cancelled = false;
+        let unlistenOutput: (() => void) | null = null;
+        let unlistenExit: (() => void) | null = null;
+
+        const setupListeners = async () => {
+            const uo = await listen<{ task_id: string; output: string }>('claude_cli_output', (event) => {
+                setActiveTaskId(event.payload.task_id);
+                if (xtermRef.current) {
+                    xtermRef.current.write(event.payload.output);
+                }
+            });
+            if (cancelled) { uo(); return; }
+            unlistenOutput = uo;
+
+            const ue = await listen<{ task_id: string; success: boolean; reason: string }>('claude_cli_exit', async (event) => {
+                if (xtermRef.current) {
+                    const color = event.payload.success ? '\x1b[32m' : '\x1b[31m';
+                    xtermRef.current.writeln(`\r\n${color}✔ Process Exited: ${event.payload.reason}\x1b[0m\r\n`);
+                }
+                setActiveTaskId(null);
+                
+                if (event.payload.success) {
+                    await updateTaskStatus(event.payload.task_id, 'Done');
+                    toast.success('タスクが終了しました (Done)');
+                } else {
+                    toast.error(`プロセス終了: ${event.payload.reason}`);
+                }
+            });
+            if (cancelled) { ue(); return; }
+            unlistenExit = ue;
+        };
+
+        const handleFrontendError = (e: Event) => {
+            const ce = e as CustomEvent;
+            if (xtermRef.current) {
+                xtermRef.current.writeln(`\r\n\x1b[31m[Invoke Error] ${ce.detail}\x1b[0m\r\n`);
+            }
+        };
+
+        window.addEventListener('claude_error', handleFrontendError);
+        setupListeners();
+
+        return () => {
+            cancelled = true;
+            if (unlistenOutput) unlistenOutput();
+            if (unlistenExit) unlistenExit();
+            window.removeEventListener('claude_error', handleFrontendError);
+        };
+    }, [updateTaskStatus]);
+
+    const handleKill = async () => {
+        if (!activeTaskId) return;
+        try {
+            await invoke('kill_claude_process', { taskId: activeTaskId });
+            toast.success('強制終了シグナルを送信しました');
+        } catch (e: any) {
+            toast.error(`Kill Error: ${e}`);
         }
-    }, [sessionId, executeCommand, hasExecutedDummy]);
+    };
 
     return (
-        <div ref={terminalRef} className="w-full h-full rounded overflow-hidden" />
+        <div className="relative w-full h-full">
+            <div ref={terminalRef} className="w-full h-full rounded overflow-hidden" />
+            {activeTaskId && (
+                <button
+                    onClick={handleKill}
+                    className="absolute top-2 right-4 bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-md flex items-center gap-2 text-sm shadow-lg font-medium transition-colors z-10"
+                    title="実行中のClaudeプロセスを強制停止します"
+                >
+                    <StopCircle size={16} />
+                    実行を強制停止
+                </button>
+            )}
+        </div>
     );
 };
