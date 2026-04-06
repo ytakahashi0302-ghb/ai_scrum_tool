@@ -6,11 +6,14 @@ import { Button } from '../ui/Button';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import toast from 'react-hot-toast';
+import { Task } from '../../types';
 
 export interface TaskFormData {
     title: string;
     description: string;
     status: 'TODO' | 'IN_PROGRESS' | 'DONE';
+    priority: number;
+    blocked_by_task_ids: string[];
 }
 
 interface TaskFormModalProps {
@@ -20,6 +23,7 @@ interface TaskFormModalProps {
     onDelete?: () => Promise<void>;
     initialData?: Partial<TaskFormData>;
     title: string;
+    availableTasks?: Task[];
 }
 
 export const TaskFormModal: React.FC<TaskFormModalProps> = ({
@@ -28,12 +32,15 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     onSave,
     onDelete,
     initialData,
-    title
+    title,
+    availableTasks = []
 }) => {
     const [formData, setFormData] = useState<TaskFormData>({
         title: '',
         description: '',
-        status: 'TODO'
+        status: 'TODO',
+        priority: 3,
+        blocked_by_task_ids: []
     });
     const [errors, setErrors] = useState<Partial<Record<keyof TaskFormData, string>>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -44,7 +51,9 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             setFormData({
                 title: initialData?.title || '',
                 description: initialData?.description || '',
-                status: initialData?.status || 'TODO'
+                status: initialData?.status || 'TODO',
+                priority: initialData?.priority ?? 3,
+                blocked_by_task_ids: initialData?.blocked_by_task_ids || []
             });
             setErrors({});
             setMode(initialData?.description ? 'preview' : 'edit');
@@ -136,18 +145,72 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     )}
                 </div>
 
-                <div className="flex flex-col gap-1">
-                    <label className="text-sm font-medium text-gray-700">ステータス</label>
-                    <select
-                        value={formData.status}
-                        onChange={(e) => setFormData(p => ({ ...p, status: e.target.value as TaskFormData['status'] }))}
-                        className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                    >
-                        <option value="TODO">未着手 (To Do)</option>
-                        <option value="IN_PROGRESS">進行中 (In Progress)</option>
-                        <option value="DONE">完了 (Done)</option>
-                    </select>
+                <div className="flex gap-3">
+                    <div className="flex flex-col gap-1 flex-1">
+                        <label className="text-sm font-medium text-gray-700">ステータス</label>
+                        <select
+                            value={formData.status}
+                            onChange={(e) => setFormData(p => ({ ...p, status: e.target.value as TaskFormData['status'] }))}
+                            className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                        >
+                            <option value="TODO">未着手 (To Do)</option>
+                            <option value="IN_PROGRESS">進行中 (In Progress)</option>
+                            <option value="DONE">完了 (Done)</option>
+                        </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1 flex-1">
+                        <label className="text-sm font-medium text-gray-700">優先度（小さいほど高い）</label>
+                        <select
+                            value={formData.priority}
+                            onChange={(e) => setFormData(p => ({ ...p, priority: Number(e.target.value) }))}
+                            className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                        >
+                            <option value={1}>1（最重要）</option>
+                            <option value={2}>2（高）</option>
+                            <option value={3}>3（中・デフォルト）</option>
+                            <option value={4}>4（低）</option>
+                            <option value={5}>5（最低）</option>
+                        </select>
+                    </div>
                 </div>
+
+                {availableTasks.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                        <label className="text-sm font-medium text-gray-700">
+                            依存関係（先行タスク）
+                            <span className="text-xs text-gray-400 ml-1">— 完了が必要なタスクを選択</span>
+                        </label>
+                        <div className="border border-gray-200 rounded-md max-h-36 overflow-y-auto divide-y divide-gray-100">
+                            {availableTasks.map(t => (
+                                <label
+                                    key={t.id}
+                                    className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.blocked_by_task_ids.includes(t.id)}
+                                        onChange={(e) => {
+                                            setFormData(p => ({
+                                                ...p,
+                                                blocked_by_task_ids: e.target.checked
+                                                    ? [...p.blocked_by_task_ids, t.id]
+                                                    : p.blocked_by_task_ids.filter(id => id !== t.id)
+                                            }));
+                                        }}
+                                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <span className="text-sm text-gray-700 truncate">{t.title}</span>
+                                    <span className={`ml-auto text-xs px-1.5 py-0.5 rounded border shrink-0 ${
+                                        t.status === 'Done' ? 'bg-green-50 text-green-600 border-green-200' :
+                                        t.status === 'In Progress' ? 'bg-blue-50 text-blue-600 border-blue-200' :
+                                        'bg-slate-50 text-slate-500 border-slate-200'
+                                    }`}>{t.status}</span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 <div className="flex justify-between items-center mt-4 pt-4 border-t">
                     <div>

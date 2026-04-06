@@ -2,14 +2,16 @@ import { createContext, useContext, useEffect, ReactNode } from 'react';
 import { useStories } from '../hooks/useStories';
 import { useTasks } from '../hooks/useTasks';
 import { useSprints } from '../hooks/useSprints';
+import { useTaskDependencies } from '../hooks/useTaskDependencies';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Story, Task, Sprint } from '../types';
+import { Story, Task, Sprint, TaskDependency } from '../types';
 
 interface ScrumContextType {
     stories: Story[];
     tasks: Task[];
     sprints: Sprint[];
+    dependencies: TaskDependency[];
     loading: boolean;
     addStory: (story: Omit<Story, 'created_at' | 'updated_at' | 'project_id'>) => Promise<void>;
     updateStory: (story: Story) => Promise<void>;
@@ -23,6 +25,10 @@ interface ScrumContextType {
     completeSprint: (sprintId: string, completedAt: number) => Promise<void>;
     assignStoryToSprint: (storyId: string, sprintId: string | null) => Promise<void>;
     assignTaskToSprint: (taskId: string, sprintId: string | null) => Promise<void>;
+    setTaskDependencies: (taskId: string, blockedByIds: string[]) => Promise<void>;
+    isTaskBlocked: (taskId: string) => boolean;
+    getTaskBlockers: (taskId: string) => Task[];
+    getBlockerIds: (taskId: string) => string[];
     refresh: () => Promise<void>;
 }
 
@@ -57,25 +63,39 @@ export function ScrumProvider({ children }: { children: ReactNode }) {
         completeSprint
     } = useSprints();
 
+    const {
+        dependencies,
+        fetchDependencies,
+        setTaskDependencies,
+        isTaskBlocked: isTaskBlockedRaw,
+        getTaskBlockers: getTaskBlockersRaw,
+        getBlockerIds,
+    } = useTaskDependencies();
+
     useEffect(() => {
         fetchStories();
         fetchTasks();
         fetchSprints();
+        fetchDependencies();
 
         const unlistenPromise = listen('kanban-updated', () => {
             fetchStories();
             fetchTasks();
             fetchSprints();
+            fetchDependencies();
         });
 
         return () => {
             unlistenPromise.then((unlisten) => unlisten());
         };
-    }, [fetchStories, fetchTasks, fetchSprints]);
+    }, [fetchStories, fetchTasks, fetchSprints, fetchDependencies]);
 
     const refresh = async () => {
-        await Promise.all([fetchStories(), fetchTasks(), fetchSprints()]);
+        await Promise.all([fetchStories(), fetchTasks(), fetchSprints(), fetchDependencies()]);
     };
+
+    const isTaskBlocked = (taskId: string) => isTaskBlockedRaw(taskId, tasks);
+    const getTaskBlockers = (taskId: string) => getTaskBlockersRaw(taskId, tasks);
 
     const assignStoryToSprint = async (storyId: string, sprintId: string | null) => {
         await invoke('assign_story_to_sprint', { storyId, sprintId });
@@ -91,6 +111,7 @@ export function ScrumProvider({ children }: { children: ReactNode }) {
         stories,
         tasks,
         sprints,
+        dependencies,
         loading: storiesLoading || tasksLoading || sprintsLoading,
         addStory,
         updateStory,
@@ -104,6 +125,10 @@ export function ScrumProvider({ children }: { children: ReactNode }) {
         completeSprint,
         assignStoryToSprint,
         assignTaskToSprint,
+        setTaskDependencies,
+        isTaskBlocked,
+        getTaskBlockers,
+        getBlockerIds,
         refresh
     };
 

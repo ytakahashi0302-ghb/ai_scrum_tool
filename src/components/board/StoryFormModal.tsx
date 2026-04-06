@@ -9,6 +9,7 @@ export interface StoryFormData {
     title: string;
     description: string;
     acceptance_criteria: string;
+    priority: number;
 }
 
 interface StoryFormModalProps {
@@ -31,7 +32,8 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
     const [formData, setFormData] = useState<StoryFormData>({
         title: '',
         description: '',
-        acceptance_criteria: ''
+        acceptance_criteria: '',
+        priority: 3
     });
     const [errors, setErrors] = useState<Partial<Record<keyof StoryFormData, string>>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,7 +43,8 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
             setFormData({
                 title: initialData?.title || '',
                 description: initialData?.description || '',
-                acceptance_criteria: initialData?.acceptance_criteria || ''
+                acceptance_criteria: initialData?.acceptance_criteria || '',
+                priority: initialData?.priority ?? 3
             });
             setErrors({});
         }
@@ -102,6 +105,21 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
                     placeholder="- ユーザーが〇〇できること&#10;- 〇〇のデータが保存されること..."
                     rows={4}
                 />
+
+                <div className="flex flex-col gap-1">
+                    <label className="text-sm font-medium text-gray-700">優先度 (Priority)</label>
+                    <select
+                        value={formData.priority}
+                        onChange={(e) => setFormData(p => ({ ...p, priority: Number(e.target.value) }))}
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                        <option value={1}>1（最重要）</option>
+                        <option value={2}>2（高）</option>
+                        <option value={3}>3（中・デフォルト）</option>
+                        <option value={4}>4（低）</option>
+                        <option value={5}>5（最低）</option>
+                    </select>
+                </div>
 
                 <div className="flex justify-between items-center mt-4 pt-4 border-t">
                     <div>

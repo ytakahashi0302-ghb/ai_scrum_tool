@@ -11,9 +11,10 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { useScrum } from '../../context/ScrumContext';
 import { StorySwimlane } from './StorySwimlane';
+import toast from 'react-hot-toast';
 
 export function Board() {
-    const { stories, tasks, sprints, updateTaskStatus, loading } = useScrum();
+    const { stories, tasks, sprints, updateTaskStatus, loading, isTaskBlocked, getTaskBlockers } = useScrum();
     
     const activeSprint = useMemo(() => {
         return sprints.find(s => s.status === 'Active');
@@ -77,10 +78,18 @@ export function Board() {
 
         // ステータスが変更された場合のみ更新
         if (targetStatus && targetStatus !== activeTask.status) {
-            // 楽観的UI更新（非同期待ちを排除してフリッカーを防止）
+            // ブロック中タスクを In Progress に移動する場合、警告を表示（ソフト制約）
+            if (targetStatus === 'In Progress' && isTaskBlocked(activeTaskId)) {
+                const blockers = getTaskBlockers(activeTaskId);
+                const blockerTitles = blockers.map(b => b.title).join(', ');
+                toast(`⚠️ このタスクは先行タスクが未完了です: ${blockerTitles}`, {
+                    duration: 4000,
+                    style: { background: '#fef3c7', color: '#92400e' }
+                });
+            }
             updateTaskStatus(activeTaskId, targetStatus as 'To Do' | 'In Progress' | 'Done');
         }
-    }, [activeTasks, updateTaskStatus]);
+    }, [activeTasks, updateTaskStatus, isTaskBlocked, getTaskBlockers]);
 
     const groupedTasks = useMemo(() => {
         const groups: Record<string, typeof activeTasks> = {};

@@ -30,6 +30,7 @@ export function useStories() {
                 description: story.description,
                 acceptanceCriteria: story.acceptance_criteria,
                 status: story.status,
+                priority: story.priority ?? 3,
                 projectId: currentProjectId
             });
             await fetchStories();
@@ -47,7 +48,8 @@ export function useStories() {
                 title: story.title,
                 description: story.description,
                 acceptanceCriteria: story.acceptance_criteria,
-                status: story.status
+                status: story.status,
+                priority: story.priority ?? 3
             });
             await fetchStories();
         } catch (err) {

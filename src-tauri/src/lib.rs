@@ -65,6 +65,24 @@ pub fn run() {
             description: "ai_team_leader",
             sql: include_str!("../migrations/8_ai_team_leader.sql"),
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 9,
+            description: "priority_dependencies",
+            sql: include_str!("../migrations/9_priority_dependencies.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 10,
+            description: "priority_integer",
+            sql: include_str!("../migrations/10_priority_integer.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 11,
+            description: "priority_column_to_integer",
+            sql: include_str!("../migrations/11_priority_column_to_integer.sql"),
+            kind: MigrationKind::Up,
         }
     ];
 
@@ -149,7 +167,9 @@ pub fn run() {
             scaffolding::execute_scaffold_cli,
             scaffolding::execute_scaffold_ai,
             scaffolding::generate_agent_md,
-            scaffolding::generate_claude_settings
+            scaffolding::generate_claude_settings,
+            db::get_all_task_dependencies,
+            db::set_task_dependencies
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

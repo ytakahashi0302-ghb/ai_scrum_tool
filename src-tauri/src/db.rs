@@ -33,6 +33,7 @@ pub struct Story {
     pub archived: bool,
     pub created_at: String,
     pub updated_at: String,
+    pub priority: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
@@ -48,6 +49,13 @@ pub struct Task {
     pub assignee_type: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub priority: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+pub struct TaskDependency {
+    pub task_id: String,
+    pub blocked_by_task_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
@@ -235,8 +243,9 @@ pub async fn get_archived_stories(app: AppHandle, project_id: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn add_story(app: AppHandle, id: String, project_id: String, title: String, description: Option<String>, acceptance_criteria: Option<String>, status: String) -> Result<QueryResult, String> {
-    let query = "INSERT INTO stories (id, project_id, title, description, acceptance_criteria, status) VALUES (?, ?, ?, ?, ?, ?)";
+pub async fn add_story(app: AppHandle, id: String, project_id: String, title: String, description: Option<String>, acceptance_criteria: Option<String>, status: String, priority: Option<i32>) -> Result<QueryResult, String> {
+    let priority_val = priority.unwrap_or(3);
+    let query = "INSERT INTO stories (id, project_id, title, description, acceptance_criteria, status, priority) VALUES (?, ?, ?, ?, ?, ?, ?)";
     let values = vec![
         serde_json::to_value(id).unwrap(),
         serde_json::to_value(project_id).unwrap(),
@@ -244,18 +253,21 @@ pub async fn add_story(app: AppHandle, id: String, project_id: String, title: St
         serde_json::to_value(description).unwrap(),
         serde_json::to_value(acceptance_criteria).unwrap(),
         serde_json::to_value(status).unwrap(),
+        serde_json::to_value(priority_val).unwrap(),
     ];
     execute_query(&app, query, values).await
 }
 
 #[tauri::command]
-pub async fn update_story(app: AppHandle, id: String, title: String, description: Option<String>, acceptance_criteria: Option<String>, status: String) -> Result<QueryResult, String> {
-    let query = "UPDATE stories SET title = ?, description = ?, acceptance_criteria = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+pub async fn update_story(app: AppHandle, id: String, title: String, description: Option<String>, acceptance_criteria: Option<String>, status: String, priority: Option<i32>) -> Result<QueryResult, String> {
+    let priority_val = priority.unwrap_or(3);
+    let query = "UPDATE stories SET title = ?, description = ?, acceptance_criteria = ?, status = ?, priority = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
     let values = vec![
         serde_json::to_value(title).unwrap(),
         serde_json::to_value(description).unwrap(),
         serde_json::to_value(acceptance_criteria).unwrap(),
         serde_json::to_value(status).unwrap(),
+        serde_json::to_value(priority_val).unwrap(),
         serde_json::to_value(id).unwrap(),
     ];
     execute_query(&app, query, values).await
@@ -299,8 +311,9 @@ pub async fn get_tasks_by_story_id(app: AppHandle, story_id: String, project_id:
 }
 
 #[tauri::command]
-pub async fn add_task(app: AppHandle, id: String, project_id: String, story_id: String, title: String, description: Option<String>, status: String, assignee_type: Option<String>) -> Result<QueryResult, String> {
-    let query = "INSERT INTO tasks (id, project_id, story_id, title, description, status, assignee_type) VALUES (?, ?, ?, ?, ?, ?, ?)";
+pub async fn add_task(app: AppHandle, id: String, project_id: String, story_id: String, title: String, description: Option<String>, status: String, assignee_type: Option<String>, priority: Option<i32>) -> Result<QueryResult, String> {
+    let priority_val = priority.unwrap_or(3);
+    let query = "INSERT INTO tasks (id, project_id, story_id, title, description, status, assignee_type, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
     let values = vec![
         serde_json::to_value(id).unwrap(),
         serde_json::to_value(project_id).unwrap(),
@@ -309,6 +322,7 @@ pub async fn add_task(app: AppHandle, id: String, project_id: String, story_id: 
         serde_json::to_value(description).unwrap(),
         serde_json::to_value(status).unwrap(),
         serde_json::to_value(assignee_type).unwrap(),
+        serde_json::to_value(priority_val).unwrap(),
     ];
     execute_query(&app, query, values).await
 }
@@ -324,13 +338,15 @@ pub async fn update_task_status(app: AppHandle, id: String, status: String) -> R
 }
 
 #[tauri::command]
-pub async fn update_task(app: AppHandle, id: String, title: String, description: Option<String>, status: String, assignee_type: Option<String>) -> Result<QueryResult, String> {
-    let query = "UPDATE tasks SET title = ?, description = ?, status = ?, assignee_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+pub async fn update_task(app: AppHandle, id: String, title: String, description: Option<String>, status: String, assignee_type: Option<String>, priority: Option<i32>) -> Result<QueryResult, String> {
+    let priority_val = priority.unwrap_or(3);
+    let query = "UPDATE tasks SET title = ?, description = ?, status = ?, assignee_type = ?, priority = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
     let values = vec![
         serde_json::to_value(title).unwrap(),
         serde_json::to_value(description).unwrap(),
         serde_json::to_value(status).unwrap(),
         serde_json::to_value(assignee_type).unwrap(),
+        serde_json::to_value(priority_val).unwrap(),
         serde_json::to_value(id).unwrap(),
     ];
     execute_query(&app, query, values).await
@@ -371,6 +387,55 @@ pub async fn clear_team_chat_messages(app: AppHandle, project_id: String) -> Res
     let query = "DELETE FROM team_chat_messages WHERE project_id = ?";
     let values = vec![serde_json::to_value(project_id).unwrap()];
     execute_query(&app, query, values).await
+}
+
+// ------------------------------------------------------------------------------------------------
+// Task Dependencies CRUD
+// ------------------------------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn get_all_task_dependencies(app: AppHandle, project_id: String) -> Result<Vec<TaskDependency>, String> {
+    let query = r#"
+        SELECT td.task_id, td.blocked_by_task_id
+        FROM task_dependencies td
+        JOIN tasks t ON td.task_id = t.id
+        WHERE t.project_id = ?
+    "#;
+    let values = vec![serde_json::to_value(project_id).unwrap()];
+    select_query::<TaskDependency>(&app, query, values).await
+}
+
+#[tauri::command]
+pub async fn set_task_dependencies(app: AppHandle, task_id: String, blocked_by_ids: Vec<String>) -> Result<(), String> {
+    let instances = app.state::<DbInstances>();
+    let db_instances = instances.0.read().await;
+    let wrapper = db_instances.get(DB_STRING).ok_or("Database instance not found")?;
+
+    #[allow(unreachable_patterns)]
+    let pool = match wrapper {
+        DbPool::Sqlite(p) => p,
+        _ => return Err("Not an sqlite database".to_string()),
+    };
+
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    // 既存の依存関係をすべて削除
+    let _ = sqlx::query("DELETE FROM task_dependencies WHERE task_id = ?")
+        .bind(&task_id)
+        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+
+    // 新しい依存関係を挿入
+    for blocker_id in &blocked_by_ids {
+        if blocker_id != &task_id {
+            let _ = sqlx::query("INSERT OR IGNORE INTO task_dependencies (task_id, blocked_by_task_id) VALUES (?, ?)")
+                .bind(&task_id)
+                .bind(blocker_id)
+                .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+        }
+    }
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -571,6 +636,10 @@ pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<
         return Ok(String::new());
     }
 
+    // タスク依存関係の取得
+    let query_deps = "SELECT td.task_id, td.blocked_by_task_id FROM task_dependencies td JOIN tasks t ON td.task_id = t.id WHERE t.project_id = ?";
+    let dependencies = select_query::<TaskDependency>(app, query_deps, vec![serde_json::to_value(project_id).unwrap()]).await.unwrap_or_default();
+
     // ストーリーとタスクの描画ヘルパー
     let render_stories = |stories_filtered: Vec<&Story>, tasks_all: &[Task]| -> String {
         let mut out = String::new();
@@ -582,15 +651,24 @@ pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<
                 desc
             };
             let desc_str = if short_desc.is_empty() { String::new() } else { format!(": {}", short_desc) };
-            out.push_str(&format!("- Story [ID: {}]: {}{} (Status: {})\n", story.id, story.title, desc_str, story.status));
-            
+            out.push_str(&format!("- Story [P{}][ID: {}]: {}{} (Status: {})\n", story.priority, story.id, story.title, desc_str, story.status));
+
             for task in tasks_all.iter().filter(|t| t.story_id == story.id) {
                 let status_icon = match task.status.as_str() {
                     "Done" => " ✅",
                     "In Progress" => " 🔄",
                     _ => "",
                 };
-                out.push_str(&format!("  - Task: {} (Status: {}){}\n", task.title, task.status, status_icon));
+                let blockers: Vec<&str> = dependencies.iter()
+                    .filter(|d| d.task_id == task.id)
+                    .map(|d| d.blocked_by_task_id.as_str())
+                    .collect();
+                let blocker_str = if blockers.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [blocked_by: {}]", blockers.join(", "))
+                };
+                out.push_str(&format!("  - Task [P{}]: {} (Status: {}){}{}\n", task.priority, task.title, task.status, status_icon, blocker_str));
             }
         }
         out
@@ -628,6 +706,8 @@ pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<
 pub struct TaskDraft {
     pub title: String,
     pub description: Option<String>,
+    pub priority: Option<i32>,
+    pub blocked_by_indices: Option<Vec<usize>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -636,6 +716,7 @@ pub struct StoryDraftInput {
     pub title: String,
     pub description: Option<String>,
     pub acceptance_criteria: Option<String>,
+    pub priority: Option<i32>,
 }
 
 pub async fn insert_story_with_tasks(
@@ -656,12 +737,14 @@ pub async fn insert_story_with_tasks(
 
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
+    let story_priority = story_draft.priority.unwrap_or(3);
+
     let story_id = if let Some(existing_id) = story_draft.target_story_id {
         existing_id
     } else {
         let new_id = uuid::Uuid::new_v4().to_string();
-        let q_story = "INSERT INTO stories (id, project_id, title, description, acceptance_criteria, status) VALUES (?, ?, ?, ?, ?, ?)";
-        
+        let q_story = "INSERT INTO stories (id, project_id, title, description, acceptance_criteria, status, priority) VALUES (?, ?, ?, ?, ?, ?, ?)";
+
         let _ = sqlx::query(q_story)
             .bind(&new_id)
             .bind(project_id)
@@ -669,6 +752,7 @@ pub async fn insert_story_with_tasks(
             .bind(&story_draft.description)
             .bind(&story_draft.acceptance_criteria)
             .bind("Backlog")
+            .bind(story_priority)
             .execute(&mut *tx).await.map_err(|e| {
                 eprintln!("SQLx Insert Story Error: {:?}", e);
                 e.to_string()
@@ -676,9 +760,13 @@ pub async fn insert_story_with_tasks(
         new_id
     };
 
-    for task in tasks_draft {
+    // タスクIDを収集（依存関係のインデックス→ID変換に使用）
+    let mut task_ids: Vec<String> = Vec::with_capacity(tasks_draft.len());
+
+    for task in &tasks_draft {
         let task_id = uuid::Uuid::new_v4().to_string();
-        let q_task = "INSERT INTO tasks (id, project_id, story_id, title, description, status) VALUES (?, ?, ?, ?, ?, ?)";
+        let task_priority = task.priority.unwrap_or(3);
+        let q_task = "INSERT INTO tasks (id, project_id, story_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?, ?, ?)";
         let _ = sqlx::query(q_task)
             .bind(&task_id)
             .bind(project_id)
@@ -686,10 +774,32 @@ pub async fn insert_story_with_tasks(
             .bind(&task.title)
             .bind(&task.description)
             .bind("To Do")
+            .bind(task_priority)
             .execute(&mut *tx).await.map_err(|e| {
                 eprintln!("SQLx Insert Task Error: {:?}", e);
                 e.to_string()
             })?;
+        task_ids.push(task_id);
+    }
+
+    // blocked_by_indices → 実IDに変換して task_dependencies に挿入
+    for (i, task) in tasks_draft.iter().enumerate() {
+        if let Some(indices) = &task.blocked_by_indices {
+            let task_id = &task_ids[i];
+            for &blocker_idx in indices {
+                if blocker_idx < task_ids.len() && blocker_idx != i {
+                    let blocker_id = &task_ids[blocker_idx];
+                    let q_dep = "INSERT OR IGNORE INTO task_dependencies (task_id, blocked_by_task_id) VALUES (?, ?)";
+                    let _ = sqlx::query(q_dep)
+                        .bind(task_id)
+                        .bind(blocker_id)
+                        .execute(&mut *tx).await.map_err(|e| {
+                            eprintln!("SQLx Insert Dependency Error: {:?}", e);
+                            e.to_string()
+                        })?;
+                }
+            }
+        }
     }
 
     tx.commit().await.map_err(|e| e.to_string())?;

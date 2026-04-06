@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GeneratedTask {
     pub title: String,
     pub description: String,
+    pub priority: Option<i32>,
+    pub blocked_by_indices: Option<Vec<usize>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,6 +43,149 @@ pub struct ChatTaskResponse {
     pub reply: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct TeamLeaderExecutionPlan {
+    pub reply: Option<String>,
+    pub operations: Vec<crate::ai_tools::CreateStoryAndTasksArgs>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProjectBacklogCounts {
+    stories: i64,
+    tasks: i64,
+    dependencies: i64,
+}
+
+async fn get_project_backlog_counts(app: &AppHandle, project_id: &str) -> Result<ProjectBacklogCounts, String> {
+    let stories = crate::db::select_query::<(i64,)>(
+        app,
+        "SELECT COUNT(*) as count FROM stories WHERE project_id = ?",
+        vec![serde_json::to_value(project_id).unwrap()],
+    )
+    .await?
+    .first()
+    .map(|row| row.0)
+    .unwrap_or(0);
+
+    let tasks = crate::db::select_query::<(i64,)>(
+        app,
+        "SELECT COUNT(*) as count FROM tasks WHERE project_id = ?",
+        vec![serde_json::to_value(project_id).unwrap()],
+    )
+    .await?
+    .first()
+    .map(|row| row.0)
+    .unwrap_or(0);
+
+    let dependencies = crate::db::select_query::<(i64,)>(
+        app,
+        "SELECT COUNT(*) as count FROM task_dependencies td JOIN tasks t ON td.task_id = t.id WHERE t.project_id = ?",
+        vec![serde_json::to_value(project_id).unwrap()],
+    )
+    .await?
+    .first()
+    .map(|row| row.0)
+    .unwrap_or(0);
+
+    Ok(ProjectBacklogCounts {
+        stories,
+        tasks,
+        dependencies,
+    })
+}
+
+fn looks_like_backlog_mutation_request(message: &str) -> bool {
+    let normalized = message.to_lowercase();
+    let has_action = ["追加", "作成", "登録", "生成", "append", "create", "add", "register"]
+        .iter()
+        .any(|keyword| normalized.contains(keyword));
+    let has_target = ["バックログ", "ストーリー", "story", "stories", "タスク", "task", "tasks"]
+        .iter()
+        .any(|keyword| normalized.contains(keyword));
+
+    has_action && has_target
+}
+
+async fn execute_fallback_team_leader_plan(
+    app: &AppHandle,
+    provider: &crate::rig_provider::AiProvider,
+    api_key: &str,
+    model: &str,
+    project_id: &str,
+    context_md: &str,
+    user_request: &str,
+    before_counts: ProjectBacklogCounts,
+) -> Result<Option<ChatTaskResponse>, String> {
+    let fallback_system_prompt = format!(
+        "あなたはバックログ登録計画を JSON で返すプランナーです。ユーザー依頼に対して、実行すべき `create_story_and_tasks` 相当の操作を JSON のみで返してください。\n\nルール:\n- 既存ストーリーにタスクを追加する場合は、必ず context 内に存在する story ID を `target_story_id` に設定する\n- 新規ストーリーを作る場合のみ `target_story_id` を null にし、`story_title` を必須で入れる\n- `tasks` は必ず1件以上含める\n- 各 task には `title`, `description`, `priority`, `blocked_by_indices` を入れる\n- priority は整数 1〜5\n- 実行不要なら `operations` は空配列にする\n- 出力は必ず JSON オブジェクトのみ\n\n返却形式:\n{{\"reply\":\"ユーザー向け要約\",\"operations\":[{{\"target_story_id\":null,\"story_title\":\"...\",\"story_description\":\"...\",\"acceptance_criteria\":\"...\",\"story_priority\":3,\"tasks\":[{{\"title\":\"...\",\"description\":\"...\",\"priority\":2,\"blocked_by_indices\":[0]}}]}}]}}\n\n【既存バックログ】\n{}",
+        context_md
+    );
+
+    let raw_plan = crate::rig_provider::chat_with_history(
+        provider,
+        api_key,
+        model,
+        &fallback_system_prompt,
+        user_request,
+        vec![],
+    )
+    .await?;
+
+    let re = regex::Regex::new(r"(?s)\{.*\}").map_err(|e| e.to_string())?;
+    let json_str = if let Some(caps) = re.captures(&raw_plan) {
+        caps.get(0).map(|m| m.as_str()).unwrap_or(raw_plan.as_str())
+    } else {
+        raw_plan.as_str()
+    };
+
+    let plan: TeamLeaderExecutionPlan = match serde_json::from_str(json_str) {
+        Ok(plan) => plan,
+        Err(_) => return Ok(None),
+    };
+
+    if plan.operations.is_empty() {
+        return Ok(None);
+    }
+
+    for operation in plan.operations {
+        if operation.tasks.is_empty() {
+            continue;
+        }
+
+        let story_draft = crate::db::StoryDraftInput {
+            target_story_id: operation.target_story_id.clone(),
+            title: operation
+                .story_title
+                .clone()
+                .unwrap_or_else(|| "Untitled Story".to_string()),
+            description: operation.story_description.clone(),
+            acceptance_criteria: operation.acceptance_criteria.clone(),
+            priority: operation.story_priority,
+        };
+
+        crate::db::insert_story_with_tasks(app, project_id, story_draft, operation.tasks).await?;
+    }
+
+    let after_counts = get_project_backlog_counts(app, project_id).await?;
+    let added_stories = after_counts.stories.saturating_sub(before_counts.stories);
+    let added_tasks = after_counts.tasks.saturating_sub(before_counts.tasks);
+    let added_dependencies = after_counts.dependencies.saturating_sub(before_counts.dependencies);
+
+    if added_stories == 0 && added_tasks == 0 && added_dependencies == 0 {
+        return Ok(None);
+    }
+
+    let _ = app.emit("kanban-updated", ());
+
+    let reply_prefix = plan.reply.unwrap_or_else(|| "バックログ登録を実行しました。".to_string());
+    Ok(Some(ChatTaskResponse {
+        reply: format!(
+            "{}\n\n追加結果: stories +{}, tasks +{}, dependencies +{}",
+            reply_prefix, added_stories, added_tasks, added_dependencies
+        ),
+    }))
+}
+
 #[tauri::command]
 pub async fn generate_tasks_from_story(
     app: AppHandle,
@@ -54,7 +199,26 @@ pub async fn generate_tasks_from_story(
     let _context_md = crate::db::build_project_context(&app, &project_id).await.unwrap_or_default();
     let prompt = format!("Context: {}\nStory: {}\nDesc: {}\nAC: {}\nJSON Array Output Please.", _context_md, title, description, acceptance_criteria);
 
-    let system_prompt = "You are a task decomposition expert. Generate a JSON array of tasks.";
+    let system_prompt = r#"You are a task decomposition expert for agile software development.
+Given a user story, generate a JSON array of subtasks. Each task object must include:
+- "title": string (concise, action-oriented)
+- "description": string (implementation details)
+- "priority": integer 1-5 (REQUIRED; lower number = higher priority)
+- "blocked_by_indices": number[] (zero-based indices of prerequisite tasks in this array; omit or use [] if none)
+
+Priority guidelines (integer 1-5, lower = more urgent):
+- 1: Most critical — architecture foundation, blocking everything else
+- 2: High priority — core functionality on the critical path
+- 3: Medium — important feature work, not blocking others (default)
+- 4: Low — supporting tasks, tests, minor improvements
+- 5: Lowest — documentation, polish, optional enhancements
+
+Dependency guidelines:
+- Use blocked_by_indices to express "this task cannot start until task N is done"
+- Example: If task[2] requires the API from task[0], set task[2].blocked_by_indices = [0]
+- Keep dependency chains short and avoid circular references
+
+Output ONLY a valid JSON array, no explanation or markdown."#;
     let response = crate::rig_provider::chat_with_history(
         &provider_enum,
         &api_key,
@@ -303,10 +467,21 @@ pub async fn chat_with_team_leader(
 ) -> Result<ChatTaskResponse, String> {
     let (provider, api_key, model) = crate::rig_provider::resolve_provider_and_key(&app, None).await?;
     let _context_md = crate::db::build_project_context(&app, &project_id).await.unwrap_or_default();
+    let before_counts = get_project_backlog_counts(&app, &project_id).await?;
+    let latest_user_index = messages_history
+        .iter()
+        .rposition(|message| message.role == "user");
+    let (latest_user_message, prior_messages) = if let Some(index) = latest_user_index {
+        let latest = messages_history[index].content.clone();
+        let prior = messages_history[..index].to_vec();
+        (latest, prior)
+    } else {
+        (String::new(), messages_history.clone())
+    };
 
-    let chat_history = crate::rig_provider::convert_messages(&messages_history);
+    let chat_history = crate::rig_provider::convert_messages(&prior_messages);
     let system_prompt = format!(
-        "あなたはScrum TeamのAI Team Leaderです。ユーザーから機能要件や追加タスクの要望があった場合、自身が持つツール (`create_story_and_tasks`) を呼び出して、ストーリーとサブタスク群をデータベースに自動登録してください。\n\n【現在のプロダクトの状況（既存バックログ等）】\n{}\n\n【重要】ツール実行に失敗した場合は、エラー内容を確認して原因をユーザーに報告、または代替策を考えてください。ツールが失敗したからといって、決してユーザーに手動での登録作業を丸投げしないでください。\n\n会話の返答は必ず以下の形式のJSONオブジェクトのみで返してください。\n\n{{\"reply\": \"ツール実行結果やユーザーへのメッセージ内容\"}}",
+        "あなたはScrum TeamのAI Team Leaderです。ユーザーから機能要件や追加タスクの要望があった場合、自身が持つツール (`create_story_and_tasks`) を必ず呼び出して、ストーリーとサブタスク群をデータベースに自動登録してください。\n\n【最重要ルール】\n- ユーザーがストーリーやタスクの作成・追加・登録を求めた場合、説明だけで終わらせず `create_story_and_tasks` を使うこと\n- 既存ストーリーにタスクを追加する依頼では、コンテキスト中の story ID を読んで `target_story_id` を必ず指定すること\n- ツールを呼んでいないのに「追加しました」「登録しました」と断定してはいけない\n- ツールが失敗した場合は、成功を装わずエラー内容を簡潔に伝えること\n\n【現在のプロダクトの状況（既存バックログ等）】\n{}\n\n【優先度と依存関係の設定ルール】\nストーリーとタスクを作成する際は、必ず以下のフィールドを設定してください：\n- story_priority: 整数 1〜5（小さいほど優先度が高い）\n- 各タスクの priority: 整数 1〜5（小さいほど優先度が高い）\n- 各タスクの blocked_by_indices: 先行タスクの配列インデックス（0始まり）を指定。依存がなければ省略か空配列\n\n優先度の判断基準（1〜5、数値が小さいほど重要）:\n- 1: 最重要 — アーキテクチャの根幹、他の全タスクをブロックする基盤作業\n- 2: 高優先 — クリティカルパス上のコア機能\n- 3: 中優先 — 重要な機能実装だが他をブロックしない（デフォルト）\n- 4: 低優先 — サポートタスク、テスト、軽微な改善\n- 5: 最低優先 — ドキュメント、UIの微調整、オプション機能\n\n【重要】ツール実行に失敗した場合は、エラー内容を確認して原因をユーザーに報告、または代替策を考えてください。ツールが失敗したからといって、決してユーザーに手動での登録作業を丸投げしないでください。\n\n会話の返答は必ず以下の形式のJSONオブジェクトのみで返してください。\n\n{{\"reply\": \"ツール実行結果やユーザーへのメッセージ内容\"}}",
         _context_md
     );
 
@@ -316,11 +491,36 @@ pub async fn chat_with_team_leader(
         &api_key,
         &model,
         &system_prompt,
-        "",
+        &latest_user_message,
         chat_history,
         &project_id,
     )
     .await?;
+    let after_counts = get_project_backlog_counts(&app, &project_id).await?;
+    let mutation_requested = looks_like_backlog_mutation_request(&latest_user_message);
+    let data_changed = before_counts.stories != after_counts.stories
+        || before_counts.tasks != after_counts.tasks
+        || before_counts.dependencies != after_counts.dependencies;
+
+    if mutation_requested && !data_changed {
+        if let Some(fallback_response) = execute_fallback_team_leader_plan(
+            &app,
+            &provider,
+            &api_key,
+            &model,
+            &project_id,
+            &_context_md,
+            &latest_user_message,
+            before_counts,
+        )
+        .await? {
+            return Ok(fallback_response);
+        }
+
+        return Ok(ChatTaskResponse {
+            reply: "登録・追加系の依頼として解釈しましたが、実際にはバックログの件数変化を確認できませんでした。今回は成功扱いにせず停止します。`create_story_and_tasks` の未実行または失敗が疑われるため、再試行時は対象ストーリーIDを明示して実行してください。".to_string(),
+        });
+    }
 
     let re = regex::Regex::new(r"(?s)\{.*?\}").unwrap();
     let json_str = if let Some(caps) = re.captures(&raw_text) {

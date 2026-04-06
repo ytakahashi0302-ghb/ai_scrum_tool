@@ -27,6 +27,7 @@ export interface Story {
     archived: boolean;
     created_at: string;
     updated_at: string;
+    priority: number;
 }
 
 export interface Task {
@@ -41,6 +42,12 @@ export interface Task {
     assignee_type?: string | null;
     created_at: string;
     updated_at: string;
+    priority: number;
+}
+
+export interface TaskDependency {
+    task_id: string;
+    blocked_by_task_id: string;
 }
 
 export interface TeamChatMessage {

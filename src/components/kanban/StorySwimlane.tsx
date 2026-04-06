@@ -18,32 +18,36 @@ const STATUSES: Task['status'][] = ['To Do', 'In Progress', 'Done'];
 export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: StorySwimlaneProps) {
     const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
     const [isEditStoryModalOpen, setIsEditStoryModalOpen] = useState(false);
-    const { addTask, updateStory, deleteStory } = useScrum();
+    const { addTask, updateStory, deleteStory, setTaskDependencies } = useScrum();
 
     const handleAddTask = useCallback(async (data: TaskFormData) => {
-        // Map the TaskFormData status to the Task type status
         const statusMap: Record<TaskFormData['status'], Task['status']> = {
             'TODO': 'To Do',
             'IN_PROGRESS': 'In Progress',
             'DONE': 'Done'
         };
-
+        const newId = uuidv4();
         await addTask({
-            id: uuidv4(),
+            id: newId,
             story_id: story.id,
             title: data.title,
             description: data.description,
             status: statusMap[data.status],
+            priority: data.priority ?? 3,
             archived: false
         });
-    }, [addTask, story.id]);
+        if (data.blocked_by_task_ids.length > 0) {
+            await setTaskDependencies(newId, data.blocked_by_task_ids);
+        }
+    }, [addTask, setTaskDependencies, story.id]);
 
     const handleEditStory = useCallback(async (data: StoryFormData) => {
         await updateStory({
             ...story,
             title: data.title,
             description: data.description,
-            acceptance_criteria: data.acceptance_criteria
+            acceptance_criteria: data.acceptance_criteria,
+            priority: data.priority ?? 3
         });
     }, [updateStory, story]);
 
@@ -70,7 +74,16 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: Story
             {/* Story Header */}
             <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-start group">
                 <div className="flex-1 pr-4">
-                    <h2 className="text-lg font-semibold text-gray-900">{story.title}</h2>
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-semibold text-gray-900">{story.title}</h2>
+                        <span className={`text-xs px-1.5 py-0.5 rounded border font-medium shrink-0 ${
+                            (story.priority ?? 3) <= 1 ? 'bg-red-100 text-red-700 border-red-200' :
+                            story.priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                            story.priority === 3 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+                            story.priority === 4 ? 'bg-blue-100 text-blue-600 border-blue-200' :
+                            'bg-gray-100 text-gray-500 border-gray-200'
+                        }`}>P{story.priority ?? 3}</span>
+                    </div>
                     {story.description && (
                         <p className="text-sm text-gray-500 mt-1">{story.description}</p>
                     )}
@@ -101,6 +114,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: Story
                             storyId={story.id}
                             status={status}
                             tasks={groupedTasks[status]}
+                            allStoryTasks={tasks}
                         />
                     ))}
                 </div>
@@ -111,6 +125,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: Story
                 onClose={() => setIsAddTaskModalOpen(false)}
                 onSave={handleAddTask}
                 title={`「${story.title}」にタスクを追加`}
+                availableTasks={tasks}
             />
 
             <StoryFormModal
@@ -121,7 +136,8 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks }: Story
                 initialData={{
                     title: story.title,
                     description: story.description || '',
-                    acceptance_criteria: story.acceptance_criteria || ''
+                    acceptance_criteria: story.acceptance_criteria || '',
+                    priority: story.priority ?? 3
                 }}
                 title="ストーリーを編集"
             />

@@ -41,6 +41,7 @@ export function useTasks() {
                 description: task.description,
                 status: task.status,
                 assigneeType: task.assignee_type,
+                priority: task.priority ?? 3,
                 projectId: currentProjectId
             });
             await fetchTasks();
@@ -68,7 +69,8 @@ export function useTasks() {
                 title: task.title,
                 description: task.description,
                 status: task.status,
-                assigneeType: task.assignee_type
+                assigneeType: task.assignee_type,
+                priority: task.priority ?? 3
             });
             await fetchTasks();
         } catch (err) {

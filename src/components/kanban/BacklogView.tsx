@@ -7,21 +7,38 @@ import { v4 as uuidv4 } from 'uuid';
 import { Story, Task } from '../../types';
 import toast from 'react-hot-toast';
 
+// 数値そのままでソート（小さいほど優先度が高い = 先頭に表示）
+
 export function BacklogView() {
     const { stories, tasks, sprints, addStory, updateStory, deleteStory, createPlannedSprint, startSprint, assignStoryToSprint } = useScrum();
     const [isAddStoryModalOpen, setIsAddStoryModalOpen] = useState(false);
     const [storyFormInitialData, setStoryFormInitialData] = useState<Partial<StoryFormData> | undefined>();
     const [editingStory, setEditingStory] = useState<Story | null>(null);
+    const [sortMode, setSortMode] = useState<'date' | 'priority'>('date');
 
-    const backlogStories = useMemo(() => stories.filter(s => !s.sprint_id), [stories]);
+    const backlogStories = useMemo(() => {
+        const filtered = stories.filter(s => !s.sprint_id);
+        if (sortMode === 'priority') {
+            return [...filtered].sort((a, b) =>
+                (a.priority ?? 3) - (b.priority ?? 3)
+            );
+        }
+        return filtered;
+    }, [stories, sortMode]);
     
     const plannedSprint = useMemo(() => sprints.find(s => s.status === 'Planned'), [sprints]);
     const activeSprint = useMemo(() => sprints.find(s => s.status === 'Active'), [sprints]);
     
     const plannedStories = useMemo(() => {
         if (!plannedSprint) return [];
-        return stories.filter(s => s.sprint_id === plannedSprint.id);
-    }, [stories, plannedSprint]);
+        const filtered = stories.filter(s => s.sprint_id === plannedSprint.id);
+        if (sortMode === 'priority') {
+            return [...filtered].sort((a, b) =>
+                (a.priority ?? 3) - (b.priority ?? 3)
+            );
+        }
+        return filtered;
+    }, [stories, plannedSprint, sortMode]);
     
     const plannedTasks = useMemo(() => {
         if (!plannedSprint) return [];
@@ -36,6 +53,7 @@ export function BacklogView() {
             description: data.description,
             acceptance_criteria: data.acceptance_criteria,
             status: 'Ready',
+            priority: data.priority ?? 3,
             archived: false
         });
     };
@@ -80,21 +98,29 @@ export function BacklogView() {
         const progressText = totalTasks > 0 ? `(${doneTasks}/${totalTasks} 完了)` : '';
 
         return (
-            <div 
-                key={story.id} 
+            <div
+                key={story.id}
                 onClick={() => {
                     setEditingStory(story);
                     setStoryFormInitialData({
                         title: story.title,
                         description: story.description || '',
-                        acceptance_criteria: story.acceptance_criteria || ''
+                        acceptance_criteria: story.acceptance_criteria || '',
+                        priority: story.priority ?? 3
                     });
                     setIsAddStoryModalOpen(true);
                 }}
                 className="bg-white p-3 rounded-md shadow-sm border border-gray-200 mb-3 cursor-pointer hover:border-blue-400 hover:shadow-md transition-all group relative"
             >
                 <div className="flex justify-between items-start">
-                    <div className="font-semibold text-gray-800 break-words pr-2 flex items-center gap-2">
+                    <div className="font-semibold text-gray-800 break-words pr-2 flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs px-1.5 py-0.5 rounded border font-medium shrink-0 ${
+                            (story.priority ?? 3) <= 1 ? 'bg-red-100 text-red-700 border-red-200' :
+                            story.priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                            story.priority === 3 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+                            story.priority === 4 ? 'bg-blue-100 text-blue-600 border-blue-200' :
+                            'bg-gray-100 text-gray-500 border-gray-200'
+                        }`}>P{story.priority ?? 3}</span>
                         {story.title}
                         {totalTasks > 0 && (
                             <span className="text-xs font-normal text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
@@ -148,7 +174,21 @@ export function BacklogView() {
                             {backlogStories.length} {backlogStories.length > 0 ? `stories` : ''}
                         </span>
                     </h2>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
+                        <div className="flex bg-gray-100 p-0.5 rounded-md text-xs">
+                            <button
+                                onClick={() => setSortMode('date')}
+                                className={`px-2 py-1 rounded transition-colors ${sortMode === 'date' ? 'bg-white shadow-sm font-medium text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                作成日時
+                            </button>
+                            <button
+                                onClick={() => setSortMode('priority')}
+                                className={`px-2 py-1 rounded transition-colors ${sortMode === 'priority' ? 'bg-white shadow-sm font-medium text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                優先度
+                            </button>
+                        </div>
                         <Button size="sm" onClick={() => {
                             setStoryFormInitialData(undefined);
                             setIsAddStoryModalOpen(true);

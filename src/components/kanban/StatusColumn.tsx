@@ -7,9 +7,10 @@ interface StatusColumnProps {
     storyId: string;
     status: Task['status'];
     tasks: Task[];
+    allStoryTasks?: Task[];
 }
 
-export function StatusColumn({ storyId, status, tasks }: StatusColumnProps) {
+export function StatusColumn({ storyId, status, tasks, allStoryTasks = [] }: StatusColumnProps) {
     // 制約案A: ドロップ領域のIDに storyId を含めることで、同一Story内のみの判定に利用する
     const columnId = `${storyId}-${status}`;
 
@@ -50,7 +51,7 @@ export function StatusColumn({ storyId, status, tasks }: StatusColumnProps) {
             >
                 <div className="min-h-[100px]">
                     {tasks.map(task => (
-                        <TaskCard key={task.id} task={task} />
+                        <TaskCard key={task.id} task={task} availableTasks={allStoryTasks.filter(t => t.id !== task.id)} />
                     ))}
                 </div>
             </SortableContext>

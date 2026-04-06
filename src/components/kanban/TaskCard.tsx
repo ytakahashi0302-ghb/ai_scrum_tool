@@ -2,7 +2,7 @@ import { useState, memo, useCallback, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task } from '../../types';
-import { MoreVertical, TerminalSquare } from 'lucide-react';
+import { MoreVertical, TerminalSquare, Lock } from 'lucide-react';
 import { TaskFormModal, TaskFormData } from '../board/TaskFormModal';
 import { useScrum } from '../../context/ScrumContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -13,12 +13,24 @@ import remarkGfm from 'remark-gfm';
 
 interface TaskCardProps {
     task: Task;
+    availableTasks?: Task[];
 }
 
-export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
-    const { updateTaskStatus, updateTask, deleteTask } = useScrum();
+function getPriorityBadgeClass(priority: number): string {
+    if (priority <= 1) return 'bg-red-100 text-red-700 border-red-200';
+    if (priority === 2) return 'bg-orange-100 text-orange-700 border-orange-200';
+    if (priority === 3) return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+    if (priority === 4) return 'bg-blue-100 text-blue-600 border-blue-200';
+    return 'bg-gray-100 text-gray-500 border-gray-200';
+}
+
+export const TaskCard = memo(function TaskCard({ task, availableTasks = [] }: TaskCardProps) {
+    const { updateTaskStatus, updateTask, deleteTask, setTaskDependencies, isTaskBlocked, getTaskBlockers, getBlockerIds } = useScrum();
     const { projects, currentProjectId } = useWorkspace();
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const blocked = isTaskBlocked(task.id);
+    const blockers = getTaskBlockers(task.id);
+    const blockerIds = getBlockerIds(task.id);
     const {
         attributes,
         listeners,
@@ -68,10 +80,27 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
             {...attributes}
             {...listeners}
             onClick={() => setIsEditModalOpen(true)}
-            className={`bg-white p-3 rounded-md shadow-sm border cursor-grab active:cursor-grabbing ${isDragging ? 'border-blue-500 opacity-50' : 'border-gray-200 hover:border-blue-300'
-                } flex flex-col gap-1 mb-2 group relative transition-colors`}
+            className={`bg-white p-3 rounded-md shadow-sm border cursor-grab active:cursor-grabbing ${
+                isDragging ? 'border-blue-500 opacity-50'
+                : blocked ? 'border-gray-200 hover:border-gray-300 opacity-60'
+                : 'border-gray-200 hover:border-blue-300'
+            } flex flex-col gap-1 mb-2 group relative transition-colors`}
         >
             <div className="flex-1 min-w-0 pr-6">
+                <div className="flex items-center gap-1.5 mb-1">
+                    <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${getPriorityBadgeClass(task.priority)}`}>
+                        P{task.priority}
+                    </span>
+                    {blocked && (
+                        <span
+                            className="flex items-center gap-0.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded"
+                            title={`ブロック中: ${blockers.map(b => b.title).join(', ')}`}
+                        >
+                            <Lock size={10} />
+                            Blocked
+                        </span>
+                    )}
+                </div>
                 <h4 className="text-sm font-medium text-gray-900 truncate" title={task.title}>{task.title}</h4>
                 {task.description && (
                     <div
@@ -117,8 +146,10 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
                         title: data.title,
                         description: data.description,
                         status: statusMap[data.status],
+                        priority: data.priority,
                     });
-                }, [task, updateTask])}
+                    await setTaskDependencies(task.id, data.blocked_by_task_ids);
+                }, [task, updateTask, setTaskDependencies])}
                 onDelete={useCallback(async () => {
                     await deleteTask(task.id);
                 }, [task.id, deleteTask])}
@@ -130,8 +161,11 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
                         'IN_PROGRESS': 'In Progress',
                         'DONE': 'Done'
                     }).find(([_, v]) => v === task.status)?.[0] as TaskFormData['status'] || 'TODO',
-                }), [task.title, task.description, task.status])}
+                    priority: task.priority ?? 3,
+                    blocked_by_task_ids: blockerIds,
+                }), [task.title, task.description, task.status, task.priority, blockerIds])}
                 title="タスクを編集"
+                availableTasks={availableTasks.filter(t => t.id !== task.id)}
             />
         </div>
     );
