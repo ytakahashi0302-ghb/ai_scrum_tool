@@ -100,14 +100,13 @@ pub async fn execute_claude_task(
         return Err(err_msg);
     }
 
-    // npx 経由で claude-code を実行（疎通テスト中は echo に変更可能）
-    let mut child = match Command::new(r"C:\Windows\System32\cmd.exe")
-        .args(["/C", "npx", "-y", "@anthropic-ai/claude-code", "-p", &prompt])
+    // claude CLI を直接起動（グローバルインストール・認証済み前提）
+    let mut child = match Command::new("claude")
+        .args(["-p", &prompt, "--permission-mode", "bypassPermissions", "--verbose"])
         .current_dir(&cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .envs(std::env::vars())
-        .env("FORCE_COLOR", "1")
         .spawn()
     {
         Ok(c) => c,
@@ -302,13 +301,12 @@ pub async fn execute_claude_task(
         .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())?;
 
-    let mut cmd = CommandBuilder::new("npx");
-    cmd.args(["-y", "@anthropic-ai/claude-code", "-p", &prompt]);
+    let mut cmd = CommandBuilder::new("claude");
+    cmd.args(["-p", &prompt, "--permission-mode", "bypassPermissions", "--verbose"]);
     cmd.cwd(&cwd);
     for (key, val) in std::env::vars() {
         cmd.env(key, val);
     }
-    cmd.env("FORCE_COLOR", "1");
     cmd.env("TERM", "xterm-256color");
 
     let child = match pair.slave.spawn_command(cmd) {
