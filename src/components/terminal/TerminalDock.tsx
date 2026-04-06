@@ -7,6 +7,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { useScrum } from '../../context/ScrumContext';
 import {
     AlertTriangle,
+    ChevronDown,
+    ChevronUp,
     CheckCircle2,
     Loader2,
     SquareTerminal,
@@ -99,18 +101,23 @@ function isSessionRunning(status: TerminalSessionStatus): boolean {
 
 function StatusIndicator({ status }: { status: TerminalSessionStatus }) {
     if (status === 'Starting' || status === 'Running') {
-        return <Loader2 size={14} className="shrink-0 animate-spin text-emerald-500" />;
+        return <Loader2 size={14} className="shrink-0 animate-spin text-sky-400" />;
     }
     if (status === 'Completed') {
-        return <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />;
+        return <CheckCircle2 size={14} className="shrink-0 text-emerald-400" />;
     }
     if (status === 'Killed') {
-        return <StopCircle size={14} className="shrink-0 text-amber-500" />;
+        return <StopCircle size={14} className="shrink-0 text-amber-400" />;
     }
-    return <AlertTriangle size={14} className="shrink-0 text-red-500" />;
+    return <AlertTriangle size={14} className="shrink-0 text-rose-400" />;
 }
 
-export const TerminalDock: React.FC = () => {
+interface TerminalDockProps {
+    isMinimized: boolean;
+    onToggleMinimize: () => void;
+}
+
+export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggleMinimize }) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<XTerm | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
@@ -233,6 +240,12 @@ export const TerminalDock: React.FC = () => {
         term.write(session?.logs || WELCOME_MESSAGE);
         safeFitRef.current();
     }, [activeTaskId]);
+
+    useEffect(() => {
+        if (!isMinimized) {
+            safeFitRef.current();
+        }
+    }, [isMinimized]);
 
     useEffect(() => {
         let cancelled = false;
@@ -423,61 +436,70 @@ export const TerminalDock: React.FC = () => {
 
     return (
         <div className="relative flex h-full min-h-0 w-full flex-col">
-            <div className="border-b border-gray-200 bg-gray-50 px-2 py-2">
-                {sortedSessions.length === 0 ? (
-                    <div className="flex items-center gap-2 rounded-md border border-dashed border-gray-300 bg-white px-3 py-2 text-sm text-gray-500">
-                        <SquareTerminal size={16} />
-                        実行中または履歴表示中のエージェントはありません
-                    </div>
-                ) : (
-                    <div className="flex gap-2 overflow-x-auto pb-1">
-                        {sortedSessions.map((session) => {
-                            const isActive = session.taskId === activeTaskId;
-                            return (
-                                <button
-                                    key={session.taskId}
-                                    type="button"
-                                    onClick={() => handleSelectTab(session.taskId)}
-                                    className={`min-w-[220px] max-w-[280px] rounded-lg border px-3 py-2 text-left transition-colors ${
-                                        isActive
-                                            ? 'border-blue-300 bg-white shadow-sm'
-                                            : 'border-gray-200 bg-white/70 hover:border-gray-300 hover:bg-white'
-                                    }`}
-                                    title={`${session.roleName} / ${session.taskTitle}`}
-                                >
-                                    <div className="flex items-start gap-2">
-                                        <StatusIndicator status={session.status} />
-                                        <div className="min-w-0 flex-1">
-                                            <div className="truncate text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                                {session.roleName}
-                                            </div>
-                                            <div className="truncate text-sm font-medium text-gray-900">
-                                                {session.taskTitle}
-                                            </div>
-                                            <div className="truncate text-xs text-gray-500">
-                                                {session.status}
-                                            </div>
-                                        </div>
+            <div className="flex h-[33px] items-stretch border-b border-zinc-950 bg-[#18181b]">
+                <div className="min-w-0 flex-1 overflow-hidden">
+                    {sortedSessions.length === 0 ? (
+                        <div className="flex h-full items-center px-2 text-xs text-zinc-500">
+                            <span className="inline-flex min-w-0 items-center gap-2 truncate rounded-sm px-2 py-1">
+                                <SquareTerminal size={13} className="shrink-0 text-zinc-500" />
+                                <span className="truncate">実行中または履歴表示中のエージェントはありません</span>
+                            </span>
+                        </div>
+                    ) : (
+                        <div className="flex h-full items-end gap-px overflow-x-auto px-1">
+                            {sortedSessions.map((session) => {
+                                const isActive = session.taskId === activeTaskId;
+                                const showInlineKill = isActive && canKillActiveSession;
+                                return (
+                                    <div key={session.taskId} className="group relative min-w-[180px] max-w-[300px] shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSelectTab(session.taskId)}
+                                            className={`flex h-[32px] w-full items-center gap-2 rounded-t-sm border border-b-0 px-2 py-1 text-left text-xs transition-colors ${
+                                                isActive
+                                                    ? 'border-zinc-700 bg-[#1e1e1e] text-zinc-100'
+                                                    : 'border-transparent bg-[#23232a] text-zinc-400 hover:bg-[#2a2a33] hover:text-zinc-200'
+                                            } ${showInlineKill ? 'pr-7' : ''}`}
+                                            title={`${session.roleName} / ${session.taskTitle}`}
+                                        >
+                                            <StatusIndicator status={session.status} />
+                                            <span className="min-w-0 flex-1 truncate font-medium">
+                                                [{session.roleName}] {session.taskTitle}
+                                            </span>
+                                        </button>
+
+                                        {showInlineKill && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleKill();
+                                                }}
+                                                className="absolute right-1 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-sm text-red-400 opacity-50 transition-all hover:bg-red-500/10 hover:text-red-300 hover:opacity-100 focus:opacity-100 focus:outline-none group-hover:opacity-100"
+                                                title="現在表示中の Claude プロセスを強制停止します"
+                                            >
+                                                <StopCircle size={12} />
+                                            </button>
+                                        )}
                                     </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                )}
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                <button
+                    type="button"
+                    onClick={onToggleMinimize}
+                    className="inline-flex h-full w-9 shrink-0 items-center justify-center border-l border-zinc-800 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200"
+                    title={isMinimized ? 'ターミナルを展開' : 'ターミナルを折りたたむ'}
+                >
+                    {isMinimized ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                </button>
             </div>
 
-            <div className="relative min-h-0 flex-1 bg-[#1e1e1e]">
-                <div ref={terminalRef} className="h-full w-full rounded-b overflow-hidden" />
-                {canKillActiveSession && (
-                    <button
-                        onClick={handleKill}
-                        className="absolute right-4 top-2 z-10 flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white shadow-lg transition-colors hover:bg-red-500"
-                        title="現在表示中の Claude プロセスを強制停止します"
-                    >
-                        <StopCircle size={16} />
-                        このタブを強制停止
-                    </button>
-                )}
+            <div className={`relative min-h-0 flex-1 bg-[#1e1e1e] ${isMinimized ? 'hidden' : 'block'}`}>
+                <div ref={terminalRef} className="h-full w-full overflow-hidden" />
             </div>
         </div>
     );

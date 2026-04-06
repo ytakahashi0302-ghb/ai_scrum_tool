@@ -32,6 +32,8 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
             <div
                 className={cn("bg-white rounded-xl shadow-xl w-full flex flex-col max-h-[90vh]", widthClass)}
                 onClick={(e) => e.stopPropagation()}
+                onKeyDownCapture={(e) => e.stopPropagation()}
+                onPointerDownCapture={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between p-4 border-b">
                     <h2 className="text-xl font-semibold text-gray-800">{title}</h2>

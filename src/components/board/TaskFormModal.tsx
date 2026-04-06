@@ -132,7 +132,12 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             width="lg" 
             title={title}
         >
-            <form id="task-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <form
+                id="task-form"
+                onSubmit={handleSubmit}
+                onKeyDownCapture={(e) => e.stopPropagation()}
+                className="flex flex-col gap-4"
+            >
                 <Input
                     label="タイトル"
                     value={formData.title}

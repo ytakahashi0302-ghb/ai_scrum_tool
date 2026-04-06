@@ -206,10 +206,10 @@ export function InceptionDeck() {
 
     if (!currentProject.local_path) {
         return (
-            <div className="p-8 text-center flex items-center justify-center flex-col h-[calc(100vh-64px)]">
+            <div className="flex h-full flex-col items-center justify-center p-8 text-center">
                 <h2 className="text-xl font-bold mb-4 text-gray-800">Inception Deck</h2>
                 <p className="text-gray-600 mb-4 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                    AIと対話を始める前に、ヘッダーの「フォルダ」アイコンから<br/>
+                    AIと対話を始める前に、ヘッダーのワークスペース設定から<br/>
                     このプロジェクトの<b>ローカルディレクトリ</b>を設定してください。
                 </p>
             </div>
@@ -217,7 +217,7 @@ export function InceptionDeck() {
     }
 
     return (
-        <div className="flex h-[calc(100vh-64px)] w-full overflow-hidden bg-white">
+        <div className="flex h-full w-full overflow-hidden bg-white">
             {/* Left Pane: Chat / Wizard or Scaffolding Panel */}
             <div className="w-1/2 flex flex-col border-r border-gray-200">
                 {currentPhase === 5 ? (

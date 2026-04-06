@@ -69,28 +69,28 @@ export function ProjectSettings({ onOpenScaffolding }: ProjectSettingsProps) {
     };
 
     return (
-        <div className="flex items-center ml-4 gap-1">
+        <div className="flex items-center gap-2">
             <button
                 onClick={handleSelectFolder}
                 disabled={isSelecting}
-                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-sm font-medium shadow-sm transition-colors ${
                     currentProject.local_path
-                        ? 'text-green-700 bg-green-50 border border-green-200 hover:bg-green-100'
-                        : 'text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
                 }`}
                 title="ローカルディレクトリ設定"
             >
                 {currentProject.local_path ? (
                     <>
                         <FolderOpen size={16} />
-                        <span className="hidden sm:inline max-w-[120px] truncate" title={currentProject.local_path}>
+                        <span className="max-w-[120px] truncate" title={currentProject.local_path}>
                             {currentProject.local_path.split(/[\\/]/).pop()}
                         </span>
                     </>
                 ) : (
                     <>
                         <Folder size={16} />
-                        <span className="hidden sm:inline">フォルダ未設定</span>
+                        <span>フォルダ未設定</span>
                         <AlertCircle size={14} className="text-amber-500" />
                     </>
                 )}
@@ -98,10 +98,11 @@ export function ProjectSettings({ onOpenScaffolding }: ProjectSettingsProps) {
             {currentProject.local_path && (
                 <button
                     onClick={handleScaffolding}
-                    className="flex items-center gap-1 px-2 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors"
-                    title="Scaffolding: AGENT.md と .claude/settings.json を生成"
+                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-sm font-medium text-indigo-700 shadow-sm transition-colors hover:bg-indigo-100"
+                    title="Scaffold: AGENT.md と .claude/settings.json を生成します"
                 >
-                    <Hammer size={14} />
+                    <Hammer size={15} />
+                    <span>Scaffold</span>
                 </button>
             )}
         </div>

@@ -80,7 +80,11 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} width="lg" title={title}>
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <form
+                onSubmit={handleSubmit}
+                onKeyDownCapture={(e) => e.stopPropagation()}
+                className="flex flex-col gap-4"
+            >
                 <Input
                     label="タイトル"
                     value={formData.title}
