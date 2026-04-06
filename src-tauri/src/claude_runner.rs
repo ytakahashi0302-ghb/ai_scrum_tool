@@ -1,17 +1,60 @@
 use std::io::Read as IoRead;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+/// Windows: std::process::Child を保持
+/// Unix: portable-pty の PtyChild + Master/Slave を保持
+///
+/// trait object で統一し、kill / wait のみ公開する。
+struct ClaudeSession {
+    /// プロセス kill 用ハンドル
+    killer: Box<dyn ProcessKiller + Send + Sync>,
+}
+
+trait ProcessKiller {
+    fn kill(&mut self);
+    fn wait_success(&mut self) -> bool;
+}
+
+// --- Windows: std::process::Child ラッパー ---
+#[cfg(target_os = "windows")]
+struct StdChildKiller {
+    child: std::process::Child,
+}
+
+#[cfg(target_os = "windows")]
+impl ProcessKiller for StdChildKiller {
+    fn kill(&mut self) {
+        let _ = self.child.kill();
+    }
+    fn wait_success(&mut self) -> bool {
+        self.child.wait().map(|s| s.success()).unwrap_or(false)
+    }
+}
+
+// --- Unix: portable-pty の PtyChild ラッパー ---
+#[cfg(not(target_os = "windows"))]
 use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize, SlavePty};
 
-// ---------------------------------------------------------------------------
-// State: 全プラットフォーム共通で portable-pty を使用
-// ---------------------------------------------------------------------------
-
-struct ClaudeSession {
+#[cfg(not(target_os = "windows"))]
+struct PtyChildKiller {
     child: Box<dyn PtyChild + Send + Sync>,
     _master: Box<dyn MasterPty + Send>,
     _slave: Box<dyn SlavePty + Send>,
-    prompt_file: Option<std::path::PathBuf>,
+}
+
+#[cfg(not(target_os = "windows"))]
+impl ProcessKiller for PtyChildKiller {
+    fn kill(&mut self) {
+        let _ = self.child.kill();
+    }
+    fn wait_success(&mut self) -> bool {
+        self.child.wait().map(|s| s.success()).unwrap_or(false)
+    }
 }
 
 pub struct ClaudeState {
@@ -44,19 +87,231 @@ struct ClaudeExitPayload {
 }
 
 // ---------------------------------------------------------------------------
-// プロンプトを一時ファイルに書き出す
+// Windows 実装: std::process::Command + piped stdout/stderr
+//
+// portable-pty の ConPTY は PSEUDOCONSOLE_WIN32_INPUT_MODE フラグにより
+// cmd.exe がプレーンテキスト入力を受け付けないため、PTY ではなく
+// パイプベースのプロセス実行を採用する（pty_manager.rs と同じ方針）。
 // ---------------------------------------------------------------------------
 
-fn write_prompt_to_tempfile(prompt: &str) -> Result<std::path::PathBuf, String> {
-    let temp_dir = std::env::temp_dir();
-    let file_name = format!("claude_prompt_{}.md", uuid::Uuid::new_v4());
-    let file_path = temp_dir.join(file_name);
-    std::fs::write(&file_path, prompt).map_err(|e| format!("Failed to write prompt file: {}", e))?;
-    Ok(file_path)
+#[cfg(target_os = "windows")]
+fn spawn_claude_process(
+    app_handle: &AppHandle,
+    session_arc: Arc<Mutex<Option<ClaudeSession>>>,
+    task_id: String,
+    prompt: String,
+    cwd: String,
+) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("claude")
+        .args([
+            "-p", &prompt,
+            "--permission-mode", "bypassPermissions",
+            "--add-dir", &cwd,
+            "--verbose",
+        ])
+        .current_dir(&cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()
+        .map_err(|e| {
+            let msg = if e.kind() == std::io::ErrorKind::NotFound {
+                format!("claude CLI が見つかりません。Claude Code CLI がインストール済みで PATH に通っていることを確認してください。({})", e)
+            } else {
+                format!("プロセス起動失敗: {}", e)
+            };
+            log::error!("{}", msg);
+            msg
+        })?;
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    // セッション登録
+    {
+        let mut guard = session_arc.lock().map_err(|e| e.to_string())?;
+        *guard = Some(ClaudeSession {
+            killer: Box::new(StdChildKiller { child }),
+        });
+    }
+
+    // stdout 読み取りスレッド
+    let app_out = app_handle.clone();
+    let tid_out = task_id.clone();
+    if let Some(mut reader) = stdout {
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 1024];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => {
+                        log::info!("stdout reader: EOF for task {}", tid_out);
+                        break;
+                    }
+                    Ok(n) => {
+                        let output = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let _ = app_out.emit("claude_cli_output", ClaudeOutputPayload {
+                            task_id: tid_out.clone(),
+                            output,
+                        });
+                    }
+                    Err(e) => {
+                        log::warn!("stdout reader: error for task {}: {}", tid_out, e);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    // stderr 読み取りスレッド
+    let app_err = app_handle.clone();
+    let tid_err = task_id.clone();
+    if let Some(mut reader) = stderr {
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 1024];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let output = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let _ = app_err.emit("claude_cli_output", ClaudeOutputPayload {
+                            task_id: tid_err.clone(),
+                            output,
+                        });
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    // 終了待機スレッド
+    let session_wait = session_arc.clone();
+    let app_wait = app_handle.clone();
+    let tid_wait = task_id.clone();
+    std::thread::spawn(move || {
+        // stdout/stderr スレッドが先に EOF を受け取るのを少し待つ
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        let mut guard = session_wait.lock().unwrap();
+        if let Some(mut session) = guard.take() {
+            let success = session.killer.wait_success();
+            let _ = app_wait.emit("claude_cli_exit", ClaudeExitPayload {
+                task_id: tid_wait,
+                success,
+                reason: if success {
+                    "Completed successfully".into()
+                } else {
+                    "Process exited with error".into()
+                },
+            });
+        }
+    });
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// 共通実装: portable-pty ベース（Windows ConPTY / macOS・Linux PTY）
+// Unix 実装: portable-pty ベース（macOS・Linux PTY）
+// TTY 検出を維持し ANSI カラー出力に対応する。
+// ---------------------------------------------------------------------------
+
+#[cfg(not(target_os = "windows"))]
+fn spawn_claude_process(
+    app_handle: &AppHandle,
+    session_arc: Arc<Mutex<Option<ClaudeSession>>>,
+    task_id: String,
+    prompt: String,
+    cwd: String,
+) -> Result<(), String> {
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+    let mut cmd = CommandBuilder::new("claude");
+    cmd.args([
+        "-p", &prompt,
+        "--permission-mode", "bypassPermissions",
+        "--add-dir", &cwd,
+        "--verbose",
+    ]);
+    cmd.cwd(&cwd);
+    for (key, val) in std::env::vars() {
+        cmd.env(key, val);
+    }
+    cmd.env("TERM", "xterm-256color");
+
+    let child = pair.slave.spawn_command(cmd).map_err(|e| {
+        let msg = format!("プロセス起動失敗: {}", e);
+        log::error!("{}", msg);
+        msg
+    })?;
+
+    let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+
+    {
+        let mut guard = session_arc.lock().map_err(|e| e.to_string())?;
+        *guard = Some(ClaudeSession {
+            killer: Box::new(PtyChildKiller {
+                child,
+                _master: pair.master,
+                _slave: pair.slave,
+            }),
+        });
+    }
+
+    // PTY 読み取り + 終了検知スレッド
+    let session_wait = session_arc.clone();
+    let app_clone = app_handle.clone();
+    let tid_clone = task_id.clone();
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut buf = [0u8; 1024];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => {
+                    log::info!("PTY reader: EOF for task {}", tid_clone);
+                    break;
+                }
+                Ok(n) => {
+                    let output = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let _ = app_clone.emit("claude_cli_output", ClaudeOutputPayload {
+                        task_id: tid_clone.clone(),
+                        output,
+                    });
+                }
+                Err(e) => {
+                    log::warn!("PTY reader: error for task {}: {}", tid_clone, e);
+                    break;
+                }
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let mut guard = session_wait.lock().unwrap();
+        if let Some(mut session) = guard.take() {
+            let success = session.killer.wait_success();
+            let _ = app_clone.emit("claude_cli_exit", ClaudeExitPayload {
+                task_id: tid_clone.clone(),
+                success,
+                reason: if success {
+                    "Completed successfully".into()
+                } else {
+                    "Process exited with error".into()
+                },
+            });
+        }
+    });
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tauri コマンド
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
@@ -67,10 +322,13 @@ pub async fn execute_claude_task(
     prompt: String,
     cwd: String,
 ) -> Result<(), String> {
-    let mut session_guard = state.current_session.lock().map_err(|e| e.to_string())?;
-    if session_guard.is_some() {
-        return Err("A Claude process is already running.".into());
-    }
+    let session_arc = {
+        let guard = state.current_session.lock().map_err(|e| e.to_string())?;
+        if guard.is_some() {
+            return Err("A Claude process is already running.".into());
+        }
+        state.current_session.clone()
+    };
 
     // ディレクトリ存在チェック
     let cwd_path = std::path::Path::new(&cwd);
@@ -86,139 +344,19 @@ pub async fn execute_claude_task(
         return Err(err_msg);
     }
 
-    // プロンプトを一時ファイルに書き出し（argv エスケープ問題を回避）
-    let prompt_file = write_prompt_to_tempfile(&prompt)?;
-    let prompt_file_str = prompt_file.to_string_lossy().to_string();
+    log::info!("Spawning claude CLI: cwd={}, prompt_len={}", cwd, prompt.len());
 
-    // PTY を開く
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-        .map_err(|e| format!("Failed to open PTY: {}", e))?;
-
-    // コマンド構築:
-    // タスク詳細は一時ファイルに書き出し、シェルパイプで claude の stdin に流す。
-    // -p には短い指示文のみを渡し（argv エスケープ安全）、
-    // 詳細なタスク内容は stdin 経由で受け取らせる。
-    // PTY は stdout 側で TTY 検出を維持（ANSI カラー出力対応）。
-    //
-    // Windows: cmd.exe /C type <file> | claude -p "..." --permission-mode bypassPermissions --add-dir <cwd> --verbose
-    // Unix:    sh -c 'cat <file> | claude -p "..." --permission-mode bypassPermissions --add-dir <cwd> --verbose'
-    let p_prompt = "Implement the task described in stdin. Verify your changes before finishing.";
-
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut c = CommandBuilder::new("cmd.exe");
-        c.args([
-            "/C", "type", &prompt_file_str,
-            "|", "claude", "-p", p_prompt,
-            "--permission-mode", "bypassPermissions",
-            "--add-dir", &cwd,
-            "--verbose",
-        ]);
-        c
-    };
-
-    #[cfg(not(target_os = "windows"))]
-    let mut cmd = {
-        let shell_cmd = format!(
-            "cat '{}' | claude -p '{}' --permission-mode bypassPermissions --add-dir '{}' --verbose",
-            prompt_file_str, p_prompt, cwd
-        );
-        let mut c = CommandBuilder::new("sh");
-        c.args(["-c", &shell_cmd]);
-        c
-    };
-
-    cmd.cwd(&cwd);
-    for (key, val) in std::env::vars() {
-        cmd.env(key, val);
-    }
-    cmd.env("TERM", "xterm-256color");
-
-    let child = match pair.slave.spawn_command(cmd) {
-        Ok(c) => c,
-        Err(e) => {
-            // 一時ファイルをクリーンアップ
-            let _ = std::fs::remove_file(&prompt_file);
-            let err_msg = format!("CRITICAL: spawn_command failed: {}", e);
-            let _ = app_handle.emit("claude_cli_output", ClaudeOutputPayload {
-                task_id: task_id.clone(),
-                output: format!("\x1b[31m{}\x1b[0m\r\n", err_msg),
-            });
-            return Err(err_msg);
-        }
-    };
-
-    let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-
-    *session_guard = Some(ClaudeSession {
-        child,
-        _master: pair.master,
-        _slave: pair.slave,
-        prompt_file: Some(prompt_file),
-    });
-    drop(session_guard);
-
-    // PTY 読み取り + 終了検知スレッド
-    let session_arc = state.current_session.clone();
-    let app_clone = app_handle.clone();
-    let tid_clone = task_id.clone();
-
-    std::thread::spawn(move || {
-        let mut reader = reader;
-        let mut buf = [0u8; 1024];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let output = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = app_clone.emit("claude_cli_output", ClaudeOutputPayload {
-                        task_id: tid_clone.clone(),
-                        output,
-                    });
-                }
-                Err(_) => break,
-            }
-        }
-
-        std::thread::sleep(std::time::Duration::from_millis(200));
-
-        let mut guard = session_arc.lock().unwrap();
-        if let Some(mut session) = guard.take() {
-            let success = match session.child.wait() {
-                Ok(status) => status.success(),
-                Err(_) => false,
-            };
-            // 一時ファイルをクリーンアップ
-            if let Some(ref path) = session.prompt_file {
-                let _ = std::fs::remove_file(path);
-            }
-            let _ = app_clone.emit("claude_cli_exit", ClaudeExitPayload {
-                task_id: tid_clone.clone(),
-                success,
-                reason: if success {
-                    "Completed successfully".into()
-                } else {
-                    "Process exited with error".into()
-                },
-            });
-        }
-    });
+    spawn_claude_process(&app_handle, session_arc.clone(), task_id.clone(), prompt, cwd.clone())?;
 
     // タイムアウト (180秒)
-    let session_arc_timeout = state.current_session.clone();
+    let session_arc_timeout = session_arc;
     let app_timeout = app_handle.clone();
     let tid_timeout = task_id.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(180)).await;
         let mut guard = session_arc_timeout.lock().unwrap();
         if let Some(mut session) = guard.take() {
-            let _ = session.child.kill();
-            // 一時ファイルをクリーンアップ
-            if let Some(ref path) = session.prompt_file {
-                let _ = std::fs::remove_file(path);
-            }
+            session.killer.kill();
             let _ = app_timeout.emit("claude_cli_exit", ClaudeExitPayload {
                 task_id: tid_timeout,
                 success: false,
@@ -238,11 +376,7 @@ pub async fn kill_claude_process(
 ) -> Result<(), String> {
     let mut guard = state.current_session.lock().map_err(|e| e.to_string())?;
     if let Some(mut session) = guard.take() {
-        let _ = session.child.kill();
-        // 一時ファイルをクリーンアップ
-        if let Some(ref path) = session.prompt_file {
-            let _ = std::fs::remove_file(path);
-        }
+        session.killer.kill();
         let _ = app_handle.emit("claude_cli_exit", ClaudeExitPayload {
             task_id,
             success: false,
