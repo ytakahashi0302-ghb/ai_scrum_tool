@@ -556,10 +556,6 @@ fn validate_team_configuration(config: &TeamConfigurationInput) -> Result<(), St
         return Err("roles は最低 1 件必要です".to_string());
     }
 
-    if config.max_concurrent_agents as usize > config.roles.len() {
-        return Err("max_concurrent_agents は roles の件数以下である必要があります".to_string());
-    }
-
     for (index, role) in config.roles.iter().enumerate() {
         if role.id.trim().is_empty() {
             return Err(format!("roles[{}].id は必須です", index));
@@ -1165,10 +1161,7 @@ pub async fn insert_story_with_tasks(
             .bind(story_priority)
             .execute(&mut *tx)
             .await
-            .map_err(|e| {
-                eprintln!("SQLx Insert Story Error: {:?}", e);
-                e.to_string()
-            })?;
+            .map_err(|e| e.to_string())?;
         new_id
     };
 
@@ -1189,10 +1182,7 @@ pub async fn insert_story_with_tasks(
             .bind(task_priority)
             .execute(&mut *tx)
             .await
-            .map_err(|e| {
-                eprintln!("SQLx Insert Task Error: {:?}", e);
-                e.to_string()
-            })?;
+            .map_err(|e| e.to_string())?;
         task_ids.push(task_id);
     }
 
@@ -1209,10 +1199,7 @@ pub async fn insert_story_with_tasks(
                         .bind(blocker_id)
                         .execute(&mut *tx)
                         .await
-                        .map_err(|e| {
-                            eprintln!("SQLx Insert Dependency Error: {:?}", e);
-                            e.to_string()
-                        })?;
+                        .map_err(|e| e.to_string())?;
                 }
             }
         }

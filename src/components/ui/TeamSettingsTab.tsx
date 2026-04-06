@@ -41,7 +41,6 @@ export function TeamSettingsTab({
     onFetchModels,
 }: TeamSettingsTabProps) {
     const roleCount = config.roles.length;
-    const availableSlots = Math.max(0, roleCount);
 
     const updateRole = (roleId: string, patch: Partial<TeamRoleSetting>) => {
         const nextRoles = normalizeRoles(
@@ -88,6 +87,9 @@ export function TeamSettingsTab({
                             将来のマルチエージェント実行で利用する役割、システムプロンプト、Claude モデルを管理します。
                         </p>
                     </div>
+                    <div className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700 shadow-sm">
+                        登録ロール数: {roleCount}
+                    </div>
                 </div>
             </div>
 
@@ -96,7 +98,7 @@ export function TeamSettingsTab({
                     <div>
                         <h3 className="font-medium text-gray-900">最大並行稼働数</h3>
                         <p className="mt-1 text-sm text-gray-500">
-                            同時に動かせる Dev エージェント数を 1〜5 の範囲で設定します。
+                            同時に動かせる Dev エージェント数の上限を 1〜5 の範囲で設定します。登録ロール数とは独立したシステム全体の実行上限です。
                         </p>
                     </div>
                     <div className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700">
@@ -124,7 +126,7 @@ export function TeamSettingsTab({
                             className="w-24 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                         <div className="text-right text-sm text-gray-500">
-                            登録ロール数: {roleCount} / 利用可能枠: {availableSlots}
+                            ロールはテンプレートとして再利用され、同一ロールから複数エージェントを起動できます。
                         </div>
                     </div>
                 </div>

@@ -31,10 +31,6 @@ function validateTeamConfiguration(config: TeamConfiguration): string[] {
         messages.push('ロールを最低 1 件追加してください。');
     }
 
-    if (config.max_concurrent_agents > config.roles.length) {
-        messages.push('最大並行稼働数は登録ロール数以下にしてください。');
-    }
-
     config.roles.forEach((role, index) => {
         if (!role.name.trim()) {
             messages.push(`Role ${index + 1} の役割名を入力してください。`);

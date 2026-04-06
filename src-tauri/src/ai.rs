@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,6 +54,84 @@ struct ProjectBacklogCounts {
     stories: i64,
     tasks: i64,
     dependencies: i64,
+}
+
+fn extract_json_candidates(input: &str) -> Vec<&str> {
+    let mut candidates = Vec::new();
+
+    for (start, opener) in input.char_indices() {
+        if opener != '{' && opener != '[' {
+            continue;
+        }
+
+        let mut stack = vec![opener];
+        let mut in_string = false;
+        let mut escaped = false;
+        let slice = &input[start + opener.len_utf8()..];
+
+        for (offset, ch) in slice.char_indices() {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    in_string = false;
+                }
+                continue;
+            }
+
+            match ch {
+                '"' => in_string = true,
+                '{' | '[' => stack.push(ch),
+                '}' => {
+                    if stack.last() == Some(&'{') {
+                        stack.pop();
+                    } else {
+                        break;
+                    }
+                }
+                ']' => {
+                    if stack.last() == Some(&'[') {
+                        stack.pop();
+                    } else {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+
+            if stack.is_empty() {
+                let end = start + opener.len_utf8() + offset + ch.len_utf8();
+                candidates.push(&input[start..end]);
+                break;
+            }
+        }
+    }
+
+    candidates
+}
+
+fn parse_json_response<T>(content: &str) -> Result<T, String>
+where
+    T: DeserializeOwned,
+{
+    let trimmed = content.trim();
+
+    if let Ok(parsed) = serde_json::from_str::<T>(trimmed) {
+        return Ok(parsed);
+    }
+
+    let mut last_error: Option<String> = None;
+
+    for candidate in extract_json_candidates(trimmed) {
+        match serde_json::from_str::<T>(candidate) {
+            Ok(parsed) => return Ok(parsed),
+            Err(error) => last_error = Some(error.to_string()),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "レスポンスから有効なJSONを抽出できませんでした".to_string()))
 }
 
 async fn get_project_backlog_counts(
@@ -241,7 +319,9 @@ Dependency guidelines:
 - Example: If task[2] requires the API from task[0], set task[2].blocked_by_indices = [0]
 - Keep dependency chains short and avoid circular references
 
-Output ONLY a valid JSON array, no explanation or markdown."#;
+Output ONLY a valid JSON array.
+Do not wrap the array in markdown code fences.
+Do not include any explanation before or after the JSON."#;
     let response = crate::rig_provider::chat_with_history(
         &provider_enum,
         &api_key,
@@ -252,12 +332,7 @@ Output ONLY a valid JSON array, no explanation or markdown."#;
     )
     .await?;
 
-    let re = regex::Regex::new(r"(?s)\[.*?\]").map_err(|e| e.to_string())?;
-    let json_str = re
-        .captures(&response)
-        .and_then(|caps| caps.get(0))
-        .map_or(response.as_str(), |m| m.as_str());
-    serde_json::from_str(json_str).map_err(|e| e.to_string())
+    parse_json_response(&response)
 }
 
 #[tauri::command]
@@ -290,12 +365,7 @@ pub async fn refine_idea(
     )
     .await?;
 
-    let re = regex::Regex::new(r"(?s)\{.*?\}").unwrap();
-    let json_str = re
-        .captures(&content)
-        .and_then(|caps| caps.get(0))
-        .map_or(content.as_str(), |m| m.as_str());
-    serde_json::from_str(json_str).map_err(|e| e.to_string())
+    parse_json_response(&content)
 }
 
 // ---------------------------------------------------------------------------
@@ -478,25 +548,7 @@ pub async fn chat_inception(
     )
     .await?;
 
-    // Markdownコードフェンス (```json ... ```) を除去してからパース
-    let stripped = {
-        let fence_re = regex::Regex::new(r"(?s)```(?:json)?\s*\n?(.*?)\n?\s*```").unwrap();
-        if let Some(caps) = fence_re.captures(&content) {
-            caps.get(1).unwrap().as_str().to_string()
-        } else {
-            content.clone()
-        }
-    };
-
-    // Greedy match でネストした JSON を正確に抽出
-    let re = regex::Regex::new(r"(?s)\{.*\}").unwrap();
-    let json_str = if let Some(caps) = re.captures(&stripped) {
-        caps.get(0).unwrap().as_str()
-    } else {
-        &stripped
-    };
-
-    let resp: ChatInceptionResponse = match serde_json::from_str(json_str) {
+    let resp: ChatInceptionResponse = match parse_json_response(&content) {
         Ok(r) => r,
         Err(_) => ChatInceptionResponse {
             reply: content,
@@ -576,14 +628,7 @@ pub async fn chat_with_team_leader(
         });
     }
 
-    let re = regex::Regex::new(r"(?s)\{.*?\}").unwrap();
-    let json_str = if let Some(caps) = re.captures(&raw_text) {
-        caps.get(0).unwrap().as_str()
-    } else {
-        &raw_text
-    };
-
-    let resp: ChatTaskResponse = match serde_json::from_str(json_str) {
+    let resp: ChatTaskResponse = match parse_json_response(&raw_text) {
         Ok(r) => r,
         Err(_) => ChatTaskResponse { reply: raw_text },
     };

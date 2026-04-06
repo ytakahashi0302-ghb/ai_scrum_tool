@@ -9,12 +9,6 @@ mod rig_provider;
 mod scaffolding;
 use tauri_plugin_sql::{Builder as SqlBuilder, Migration, MigrationKind};
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = vec![
@@ -133,7 +127,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             ai::generate_tasks_from_story,
             ai::refine_idea,
             db::get_projects,

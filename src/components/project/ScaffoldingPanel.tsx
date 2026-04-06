@@ -93,8 +93,32 @@ export function ScaffoldingPanel({ localPath, projectName }: ScaffoldingPanelPro
     }, [localPath]);
 
     useEffect(() => {
-        detectAndCheck();
+        const timeoutId = window.setTimeout(() => {
+            void detectAndCheck();
+        }, 0);
+
+        return () => {
+            window.clearTimeout(timeoutId);
+        };
     }, [detectAndCheck]);
+
+    // スキャフォールド完了後: AGENT.md + .claude/settings.json 生成
+    const handlePostScaffold = useCallback(async () => {
+        setState('generating');
+        try {
+            const [content] = await Promise.all([
+                invoke<string>('generate_agent_md', { localPath, projectName }),
+                invoke<void>('generate_claude_settings', { localPath }),
+            ]);
+            setAgentMdContent(content);
+            setState('completed');
+            toast.success('スキャフォールド完了！');
+        } catch (error) {
+            setErrorMessage(String(error));
+            setState('error');
+            toast.error('AGENT.md 生成に失敗しました');
+        }
+    }, [localPath, projectName]);
 
     // scaffold_output / scaffold_exit イベントリスナー
     useEffect(() => {
@@ -144,25 +168,7 @@ export function ScaffoldingPanel({ localPath, projectName }: ScaffoldingPanelPro
         return () => {
             unlisteners.forEach((u) => u());
         };
-    }, [localPath, projectName]);
-
-    // スキャフォールド完了後: AGENT.md + .claude/settings.json 生成
-    const handlePostScaffold = async () => {
-        setState('generating');
-        try {
-            const [content] = await Promise.all([
-                invoke<string>('generate_agent_md', { localPath, projectName }),
-                invoke<void>('generate_claude_settings', { localPath }),
-            ]);
-            setAgentMdContent(content);
-            setState('completed');
-            toast.success('スキャフォールド完了！');
-        } catch (error) {
-            setErrorMessage(String(error));
-            setState('error');
-            toast.error('AGENT.md 生成に失敗しました');
-        }
-    };
+    }, [handlePostScaffold]);
 
     // スキャフォールド実行
     const handleExecuteScaffold = async () => {
