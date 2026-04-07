@@ -1,11 +1,12 @@
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::completion::message::Message as RigMessage;
-use rig::completion::Chat;
+use rig::completion::Prompt;
 use rig::providers::anthropic;
 use rig::providers::anthropic::completion::CompletionModel as AnthropicModel;
 use rig::providers::gemini;
 use rig::providers::gemini::completion::CompletionModel as GeminiModel;
+use serde_json::json;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
@@ -114,13 +115,32 @@ pub fn convert_messages(messages: &[crate::ai::Message]) -> Vec<RigMessage> {
         .collect()
 }
 
+#[derive(Debug, Clone)]
+pub struct LlmTextResponse {
+    pub content: String,
+    pub provider: String,
+    pub model: String,
+    pub usage: crate::llm_observability::NormalizedUsage,
+    pub raw_usage_json: serde_json::Value,
+    pub started_at: i64,
+    pub completed_at: i64,
+}
+
+fn current_timestamp_millis() -> Result<i64, String> {
+    Ok(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis() as i64)
+}
+
 async fn chat_anthropic(
     api_key: &str,
     model: &str,
     system_prompt: &str,
     user_input: &str,
-    chat_history: Vec<RigMessage>,
-) -> Result<String, String> {
+    mut chat_history: Vec<RigMessage>,
+) -> Result<LlmTextResponse, String> {
+    let started_at = current_timestamp_millis()?;
     let client = anthropic::Client::new(api_key)
         .map_err(|e| format!("Failed to create Anthropic client: {}", e))?;
     let agent: Agent<AnthropicModel> = client
@@ -128,13 +148,33 @@ async fn chat_anthropic(
         .preamble(system_prompt)
         .max_tokens(4096)
         .build();
-    tokio::time::timeout(
+    let response = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        agent.chat(user_input, chat_history),
+        agent
+            .prompt(user_input)
+            .with_history(&mut chat_history)
+            .extended_details(),
     )
     .await
     .map_err(|_| "Anthropic API timed out after 60 seconds".to_string())?
-    .map_err(|e| format!("Anthropic error: {}", e))
+    .map_err(|e| format!("Anthropic error: {}", e))?;
+    let completed_at = current_timestamp_millis()?;
+    let usage = crate::llm_observability::NormalizedUsage::from(response.usage);
+
+    Ok(LlmTextResponse {
+        content: response.output,
+        provider: "anthropic".to_string(),
+        model: model.to_string(),
+        usage,
+        raw_usage_json: json!({
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+            "cached_input_tokens": usage.cached_input_tokens,
+        }),
+        started_at,
+        completed_at,
+    })
 }
 
 async fn chat_gemini(
@@ -142,8 +182,9 @@ async fn chat_gemini(
     model: &str,
     system_prompt: &str,
     user_input: &str,
-    chat_history: Vec<RigMessage>,
-) -> Result<String, String> {
+    mut chat_history: Vec<RigMessage>,
+) -> Result<LlmTextResponse, String> {
+    let started_at = current_timestamp_millis()?;
     let client = gemini::Client::new(api_key)
         .map_err(|e| format!("Failed to create Gemini client: {}", e))?;
     let agent: Agent<GeminiModel> = client
@@ -151,13 +192,33 @@ async fn chat_gemini(
         .preamble(system_prompt)
         .max_tokens(4096)
         .build();
-    tokio::time::timeout(
+    let response = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        agent.chat(user_input, chat_history),
+        agent
+            .prompt(user_input)
+            .with_history(&mut chat_history)
+            .extended_details(),
     )
     .await
     .map_err(|_| "Gemini API timed out after 60 seconds".to_string())?
-    .map_err(|e| format!("Gemini error: {}", e))
+    .map_err(|e| format!("Gemini error: {}", e))?;
+    let completed_at = current_timestamp_millis()?;
+    let usage = crate::llm_observability::NormalizedUsage::from(response.usage);
+
+    Ok(LlmTextResponse {
+        content: response.output,
+        provider: "gemini".to_string(),
+        model: model.to_string(),
+        usage,
+        raw_usage_json: json!({
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+            "cached_input_tokens": usage.cached_input_tokens,
+        }),
+        started_at,
+        completed_at,
+    })
 }
 
 /// Send a prompt with conversation history via Rig and return the raw text response.
@@ -169,7 +230,7 @@ pub async fn chat_with_history(
     system_prompt: &str,
     user_input: &str,
     chat_history: Vec<RigMessage>,
-) -> Result<String, String> {
+) -> Result<LlmTextResponse, String> {
     match provider {
         AiProvider::Anthropic => {
             chat_anthropic(api_key, model, system_prompt, user_input, chat_history).await
@@ -187,9 +248,9 @@ pub async fn chat_team_leader_with_tools(
     model: &str,
     system_prompt: &str,
     user_input: &str,
-    chat_history: Vec<RigMessage>,
+    mut chat_history: Vec<RigMessage>,
     project_id: &str,
-) -> Result<String, String> {
+) -> Result<LlmTextResponse, String> {
     let tool = crate::ai_tools::CreateStoryAndTasksTool {
         app: app.clone(),
         project_id: project_id.to_string(),
@@ -197,6 +258,7 @@ pub async fn chat_team_leader_with_tools(
 
     match provider {
         AiProvider::Anthropic => {
+            let started_at = current_timestamp_millis()?;
             let client = anthropic::Client::new(api_key)
                 .map_err(|e| format!("Failed to create Anthropic client: {}", e))?;
             let agent = client
@@ -206,15 +268,39 @@ pub async fn chat_team_leader_with_tools(
                 .tool(tool)
                 .default_max_turns(5)
                 .build();
-            tokio::time::timeout(
+            let response = tokio::time::timeout(
                 std::time::Duration::from_secs(60),
-                agent.chat(user_input, chat_history),
+                agent
+                    .prompt(user_input)
+                    .with_history(&mut chat_history)
+                    .max_turns(5)
+                    .extended_details(),
             )
             .await
             .map_err(|_| "Anthropic API timed out after 60 seconds".to_string())?
-            .map_err(|e| format!("Anthropic error: {}", e))
+            .map_err(|e| format!("Anthropic error: {}", e))?;
+            let completed_at = current_timestamp_millis()?;
+            let usage = crate::llm_observability::NormalizedUsage::from(response.usage);
+            let message_count = response.messages.as_ref().map(|messages| messages.len());
+
+            Ok(LlmTextResponse {
+                content: response.output,
+                provider: "anthropic".to_string(),
+                model: model.to_string(),
+                usage,
+                raw_usage_json: json!({
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                    "total_tokens": usage.total_tokens,
+                    "cached_input_tokens": usage.cached_input_tokens,
+                    "messages_count": message_count
+                }),
+                started_at,
+                completed_at,
+            })
         }
         AiProvider::Gemini => {
+            let started_at = current_timestamp_millis()?;
             let client = gemini::Client::new(api_key)
                 .map_err(|e| format!("Failed to create Gemini client: {}", e))?;
             let agent = client
@@ -224,13 +310,36 @@ pub async fn chat_team_leader_with_tools(
                 .tool(tool)
                 .default_max_turns(5)
                 .build();
-            tokio::time::timeout(
+            let response = tokio::time::timeout(
                 std::time::Duration::from_secs(60),
-                agent.chat(user_input, chat_history),
+                agent
+                    .prompt(user_input)
+                    .with_history(&mut chat_history)
+                    .max_turns(5)
+                    .extended_details(),
             )
             .await
             .map_err(|_| "Gemini API timed out after 60 seconds".to_string())?
-            .map_err(|e| format!("Gemini error: {}", e))
+            .map_err(|e| format!("Gemini error: {}", e))?;
+            let completed_at = current_timestamp_millis()?;
+            let usage = crate::llm_observability::NormalizedUsage::from(response.usage);
+            let message_count = response.messages.as_ref().map(|messages| messages.len());
+
+            Ok(LlmTextResponse {
+                content: response.output,
+                provider: "gemini".to_string(),
+                model: model.to_string(),
+                usage,
+                raw_usage_json: json!({
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                    "total_tokens": usage.total_tokens,
+                    "cached_input_tokens": usage.cached_input_tokens,
+                    "messages_count": message_count
+                }),
+                started_at,
+                completed_at,
+            })
         }
     }
 }

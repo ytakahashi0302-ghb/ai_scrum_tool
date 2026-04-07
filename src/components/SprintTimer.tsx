@@ -17,6 +17,17 @@ const formatTime = (ms: number) => {
     ].join(':');
 };
 
+const formatDurationLabel = (ms: number) => {
+    const totalMinutes = Math.max(1, Math.round(ms / 60000));
+    if (totalMinutes % 60 === 0) {
+        return `${totalMinutes / 60}時間`;
+    }
+    if (totalMinutes > 60) {
+        return `${(totalMinutes / 60).toFixed(1)}時間`;
+    }
+    return `${totalMinutes}分`;
+};
+
 export function SprintTimer() {
     const {
         status,
@@ -54,7 +65,11 @@ export function SprintTimer() {
 
     const handleStart = () => {
         setDismissedTimeUp(false);
-        startSprint();
+        const activeSprint = sprints.find(s => s.status === 'Active');
+        void startSprint({
+            linkedSprintId: activeSprint?.id ?? null,
+            reason: 'MANUAL',
+        });
     };
 
     const handleComplete = async () => {
@@ -187,7 +202,7 @@ export function SprintTimer() {
                         </div>
                         <h2 className="text-3xl font-black text-gray-900 mb-3 tracking-tight">時間終了！</h2>
                         <p className="text-gray-600 mb-8 leading-relaxed">
-                            8時間のスプリントが終了しました。残りのタスクを整理し、スプリントを完了してください。
+                            {formatDurationLabel(durationMs)}のスプリントが終了しました。残りのタスクを整理し、スプリントを完了してください。
                         </p>
                         <div className="flex gap-3">
                             <Button onClick={() => setDismissedTimeUp(true)} variant="secondary" className="flex-1 h-11 text-base">

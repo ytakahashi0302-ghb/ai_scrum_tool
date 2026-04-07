@@ -395,6 +395,16 @@ pub async fn get_max_concurrent_agents_value(app: &AppHandle) -> Result<i32, Str
     Ok(settings.pop().map(|s| s.max_concurrent_agents).unwrap_or(1))
 }
 
+pub async fn get_project_by_local_path(
+    app: &AppHandle,
+    local_path: &str,
+) -> Result<Option<Project>, String> {
+    let query = "SELECT * FROM projects WHERE local_path = ? LIMIT 1";
+    let values = vec![serde_json::to_value(local_path).unwrap()];
+    let mut projects = select_query::<Project>(app, query, values).await?;
+    Ok(projects.pop())
+}
+
 // ------------------------------------------------------------------------------------------------
 // Projects CRUD
 // ------------------------------------------------------------------------------------------------

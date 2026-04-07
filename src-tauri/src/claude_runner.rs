@@ -1,4 +1,4 @@
-use crate::{db, worktree};
+use crate::{db, llm_observability, worktree};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read as IoRead;
@@ -111,6 +111,14 @@ struct ClaudeExitPayload {
     reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     new_status: Option<String>,
+}
+
+#[derive(Clone)]
+struct ClaudeUsageContext {
+    source_kind: String,
+    project_id: Option<String>,
+    sprint_id: Option<String>,
+    db_task_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -369,12 +377,46 @@ async fn build_exit_payload(
     }
 }
 
+async fn record_claude_cli_usage_event(
+    app_handle: &AppHandle,
+    session_info: &ActiveClaudeSession,
+    usage_context: &ClaudeUsageContext,
+    success: bool,
+    reason: String,
+) {
+    let completed_at = current_timestamp_millis().unwrap_or(session_info.started_at);
+
+    if let Err(error) = llm_observability::record_claude_cli_usage(
+        app_handle,
+        llm_observability::ClaudeCliUsageRecordInput {
+            project_id: usage_context.project_id.clone(),
+            task_id: usage_context.db_task_id.clone(),
+            sprint_id: usage_context.sprint_id.clone(),
+            source_kind: usage_context.source_kind.clone(),
+            model: session_info.model.clone(),
+            request_started_at: session_info.started_at,
+            request_completed_at: completed_at,
+            success,
+            error_message: (!success).then_some(reason),
+        },
+    )
+    .await
+    {
+        log::warn!(
+            "Failed to record Claude CLI usage for session {}: {}",
+            session_info.task_id,
+            error
+        );
+    }
+}
+
 async fn execute_prompt_request(
     app_handle: AppHandle,
     sessions_arc: Arc<Mutex<HashMap<String, ClaudeSessionEntry>>>,
     session_info: ActiveClaudeSession,
     prompt: String,
     cwd: String,
+    usage_context: ClaudeUsageContext,
 ) -> Result<(), String> {
     let cwd_path = std::path::Path::new(&cwd);
     if !cwd_path.exists() || !cwd_path.is_dir() {
@@ -407,6 +449,7 @@ async fn execute_prompt_request(
         session_info.clone(),
         prompt_file_path.clone(),
         cwd,
+        usage_context.clone(),
     ) {
         remove_session_entry(&sessions_arc, &session_info.task_id);
         cleanup_temp_file(&prompt_file_path);
@@ -416,6 +459,8 @@ async fn execute_prompt_request(
     let app_timeout = app_handle.clone();
     let sessions_arc_timeout = sessions_arc.clone();
     let timeout_task_id = session_info.task_id.clone();
+    let timeout_session_info = session_info.clone();
+    let timeout_usage_context = usage_context.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(180)).await;
 
@@ -427,6 +472,15 @@ async fn execute_prompt_request(
                 }
                 ClaudeSessionEntry::Starting(_) => {}
             }
+
+            record_claude_cli_usage_event(
+                &app_timeout,
+                &timeout_session_info,
+                &timeout_usage_context,
+                false,
+                "Timeout reached (180s). Process forcefully killed.".to_string(),
+            )
+            .await;
 
             let _ = app_timeout.emit(
                 "claude_cli_exit",
@@ -449,12 +503,27 @@ pub async fn execute_claude_prompt_task(
     task_id: String,
     prompt: String,
     cwd: String,
+    project_id: Option<String>,
 ) -> Result<(), String> {
     let max_concurrent_agents = db::get_max_concurrent_agents_value(&app_handle).await?;
     let session_info = build_generic_session_info(&task_id, DEFAULT_CLAUDE_MODEL)?;
     let sessions_arc = reserve_session_slot(&state, session_info.clone(), max_concurrent_agents)?;
+    let usage_context = ClaudeUsageContext {
+        source_kind: "scaffold_ai".to_string(),
+        project_id,
+        sprint_id: None,
+        db_task_id: None,
+    };
 
-    execute_prompt_request(app_handle, sessions_arc, session_info, prompt, cwd).await
+    execute_prompt_request(
+        app_handle,
+        sessions_arc,
+        session_info,
+        prompt,
+        cwd,
+        usage_context,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -472,6 +541,7 @@ fn spawn_claude_process(
     session_info: ActiveClaudeSession,
     prompt_file_path: PathBuf,
     cwd: String,
+    usage_context: ClaudeUsageContext,
 ) -> Result<(), String> {
     use std::process::{Command, Stdio};
 
@@ -574,6 +644,8 @@ fn spawn_claude_process(
     let app_wait = app_handle.clone();
     let sessions_wait = sessions_arc.clone();
     let tid_wait = session_info.task_id.clone();
+    let wait_session_info = session_info.clone();
+    let wait_usage_context = usage_context.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(300));
 
@@ -587,6 +659,13 @@ fn spawn_claude_process(
             } else {
                 "Process exited with error".to_string()
             };
+            tauri::async_runtime::block_on(record_claude_cli_usage_event(
+                &app_wait,
+                &wait_session_info,
+                &wait_usage_context,
+                success,
+                reason.clone(),
+            ));
             let exit_payload = tauri::async_runtime::block_on(build_exit_payload(
                 &app_wait, &tid_wait, success, reason,
             ));
@@ -609,6 +688,7 @@ fn spawn_claude_process(
     session_info: ActiveClaudeSession,
     prompt_file_path: PathBuf,
     cwd: String,
+    usage_context: ClaudeUsageContext,
 ) -> Result<(), String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -665,6 +745,8 @@ fn spawn_claude_process(
     let app_clone = app_handle.clone();
     let sessions_wait = sessions_arc.clone();
     let tid_clone = session_info.task_id.clone();
+    let wait_session_info = session_info.clone();
+    let wait_usage_context = usage_context.clone();
     std::thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 1024];
@@ -703,6 +785,13 @@ fn spawn_claude_process(
             } else {
                 "Process exited with error".to_string()
             };
+            tauri::async_runtime::block_on(record_claude_cli_usage_event(
+                &app_clone,
+                &wait_session_info,
+                &wait_usage_context,
+                success,
+                reason.clone(),
+            ));
             let exit_payload = tauri::async_runtime::block_on(build_exit_payload(
                 &app_clone, &tid_clone, success, reason,
             ));
@@ -813,12 +902,19 @@ pub async fn execute_claude_task(
     .await?;
 
     let prompt = build_task_prompt(&task, &role, additional_context.as_deref());
+    let usage_context = ClaudeUsageContext {
+        source_kind: "task_execution".to_string(),
+        project_id: Some(task.project_id.clone()),
+        sprint_id: task.sprint_id.clone(),
+        db_task_id: Some(task.id.clone()),
+    };
     let result = execute_prompt_request(
         app_handle.clone(),
         sessions_arc,
         session_info,
         prompt,
         worktree_info.worktree_path.clone(),
+        usage_context,
     )
     .await;
 

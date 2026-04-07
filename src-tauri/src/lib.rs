@@ -4,6 +4,7 @@ mod claude_runner;
 mod db;
 mod git;
 mod inception;
+mod llm_observability;
 mod preview;
 mod pty_commands;
 mod pty_manager;
@@ -99,6 +100,12 @@ pub fn run() {
             sql: include_str!("../migrations/14_worktrees_review.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 15,
+            description: "llm_observability",
+            sql: include_str!("../migrations/15_llm_observability.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -190,6 +197,9 @@ pub fn run() {
             db::get_all_task_dependencies,
             db::set_task_dependencies,
             db::get_worktree_record,
+            llm_observability::get_project_llm_usage_summary,
+            llm_observability::get_task_llm_usage_summary,
+            llm_observability::list_project_task_llm_usage,
             worktree::create_worktree,
             worktree::remove_worktree,
             worktree::merge_worktree,

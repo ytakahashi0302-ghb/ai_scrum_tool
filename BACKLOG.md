@@ -7,7 +7,7 @@
 ## UI / UX & ルーティング関連
 
 ## AI連携 & LLM挙動の差異
-- [ ] **AI呼び出しコスト(予算・トークン)の未計測およびDB保存の欠如**: コスト管理実現のため、AI呼び出しごとの usage (input/output tokens) を取得し、データベースに永続化する仕組みを実装する。これにより、プロジェクト単位やチャット単位でリアルタイムに使用量やコストを確認できるUIを提供可能にする。
+- [ ] **Claude CLI 実行分の厳密 usage 計測**: Epic 32 では CLI 実行分について `measurement_status='unavailable'` を許容する。将来的には Claude CLI から機械可読な usage を安全に取得し、文字列パースに依存しない正確な token/cost 計測へ移行する。
 
 ## Inception Deck (スプリント0) 関連
 - [ ] **Inception Deckフェーズ完了後の自動タブ切り替え**: ドキュメント（差分）生成時に、対応するプレビュータブ（CONTEXT / ARCHITECTURE / RULE）を自動でアクティブにするUX改善。
@@ -20,8 +20,5 @@
 - [ ] **TauriコマンドのContext未公開**: `update_project` や `delete_project` が WorkspaceContext 経由で呼び出せるようになっていないため、呼び出し経路が統一されていない箇所がある。
 - [ ] **Reviewプレビューの技術スタック判定が暫定実装**: 現在の簡易プレビューは `ARCHITECTURE.md` をもとに `npm run dev` または `npm run serve` だけを許可し、それ以外のスタックは未対応としている。将来的には `package.json` / 実行環境 / ネイティブアプリ種別も含めた正式なプレビュー起動戦略へ拡張する必要がある。
 - [ ] **Git実行環境の完全な隠蔽**: 現在は `std::process::Command` でローカルの Git CLI を呼び出している。将来的には `git2-rs` 等のライブラリ移行、またはポータブルGitの同梱により、ユーザー環境依存をさらに排除する必要がある。
-
-
-- [ ] **ペインのリサイズ機能**: 左ペイン・右ペイン間、および左ペイン上下の境界線をドラッグでリサイズできる機能（`react-split`などの導入を検討）。
 
 ## コード品質 & CI/CD

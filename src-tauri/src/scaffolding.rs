@@ -417,6 +417,9 @@ pub async fn execute_scaffold_ai(
     }
 
     let task_id = format!("scaffold-ai-{}", uuid::Uuid::new_v4());
+    let project_id = crate::db::get_project_by_local_path(&app_handle, &local_path)
+        .await?
+        .map(|project| project.id);
 
     // Claude CLI に直接委譲
     crate::claude_runner::execute_claude_prompt_task(
@@ -425,6 +428,7 @@ pub async fn execute_scaffold_ai(
         task_id,
         tech_stack_info,
         local_path,
+        project_id,
     )
     .await
 }

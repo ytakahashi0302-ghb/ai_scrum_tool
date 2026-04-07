@@ -86,3 +86,45 @@ export interface TeamConfiguration {
     max_concurrent_agents: number;
     roles: TeamRoleSetting[];
 }
+
+export interface LlmUsageAggregate {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+    total_tokens: number;
+    estimated_cost_usd: number;
+    event_count: number;
+    unavailable_event_count: number;
+}
+
+export interface LlmUsageSourceBreakdown {
+    source_kind: string;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    estimated_cost_usd: number;
+    event_count: number;
+    unavailable_event_count: number;
+}
+
+export interface LlmUsageModelBreakdown {
+    provider: string;
+    model: string;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    estimated_cost_usd: number;
+    event_count: number;
+    unavailable_event_count: number;
+}
+
+export interface ProjectLlmUsageSummary {
+    project_id: string;
+    active_sprint_id: string | null;
+    project_totals: LlmUsageAggregate;
+    active_sprint_totals: LlmUsageAggregate;
+    today_totals: LlmUsageAggregate;
+    by_source: LlmUsageSourceBreakdown[];
+    by_model: LlmUsageModelBreakdown[];
+}

@@ -175,6 +175,42 @@ async fn get_project_backlog_counts(
     })
 }
 
+async fn record_provider_usage(
+    app: &AppHandle,
+    project_id: &str,
+    source_kind: &str,
+    response: &crate::rig_provider::LlmTextResponse,
+) {
+    if let Err(error) = crate::llm_observability::record_llm_usage(
+        app,
+        crate::llm_observability::RecordLlmUsageInput {
+            project_id: project_id.to_string(),
+            task_id: None,
+            sprint_id: None,
+            source_kind: source_kind.to_string(),
+            transport_kind: "provider_api".to_string(),
+            provider: response.provider.clone(),
+            model: response.model.clone(),
+            usage: response.usage,
+            measurement_status: None,
+            request_started_at: Some(response.started_at),
+            request_completed_at: Some(response.completed_at),
+            success: true,
+            error_message: None,
+            raw_usage_json: Some(response.raw_usage_json.clone()),
+        },
+    )
+    .await
+    {
+        log::warn!(
+            "Failed to record LLM usage for source_kind={} project_id={}: {}",
+            source_kind,
+            project_id,
+            error
+        );
+    }
+}
+
 fn looks_like_backlog_mutation_request(message: &str) -> bool {
     let normalized = message.to_lowercase();
     let has_action = [
@@ -221,12 +257,15 @@ async fn execute_fallback_team_leader_plan(
         vec![],
     )
     .await?;
+    record_provider_usage(app, project_id, "team_leader", &raw_plan).await;
 
     let re = regex::Regex::new(r"(?s)\{.*\}").map_err(|e| e.to_string())?;
-    let json_str = if let Some(caps) = re.captures(&raw_plan) {
-        caps.get(0).map(|m| m.as_str()).unwrap_or(raw_plan.as_str())
+    let json_str = if let Some(caps) = re.captures(&raw_plan.content) {
+        caps.get(0)
+            .map(|m| m.as_str())
+            .unwrap_or(raw_plan.content.as_str())
     } else {
-        raw_plan.as_str()
+        raw_plan.content.as_str()
     };
 
     let plan: TeamLeaderExecutionPlan = match serde_json::from_str(json_str) {
@@ -331,8 +370,9 @@ Do not include any explanation before or after the JSON."#;
         vec![],
     )
     .await?;
+    record_provider_usage(&app, &project_id, "task_generation", &response).await;
 
-    parse_json_response(&response)
+    parse_json_response(&response.content)
 }
 
 #[tauri::command]
@@ -364,8 +404,9 @@ pub async fn refine_idea(
         chat_history,
     )
     .await?;
+    record_provider_usage(&app, &project_id, "idea_refine", &content).await;
 
-    parse_json_response(&content)
+    parse_json_response(&content.content)
 }
 
 // ---------------------------------------------------------------------------
@@ -547,11 +588,12 @@ pub async fn chat_inception(
         chat_history,
     )
     .await?;
+    record_provider_usage(&app, &project_id, "inception", &content).await;
 
-    let resp: ChatInceptionResponse = match parse_json_response(&content) {
+    let resp: ChatInceptionResponse = match parse_json_response(&content.content) {
         Ok(r) => r,
         Err(_) => ChatInceptionResponse {
-            reply: content,
+            reply: content.content,
             is_finished: false,
             patch_target: None,
             patch_content: None,
@@ -601,6 +643,7 @@ pub async fn chat_with_team_leader(
         &project_id,
     )
     .await?;
+    record_provider_usage(&app, &project_id, "team_leader", &raw_text).await;
     let after_counts = get_project_backlog_counts(&app, &project_id).await?;
     let mutation_requested = looks_like_backlog_mutation_request(&latest_user_message);
     let data_changed = before_counts.stories != after_counts.stories
@@ -628,9 +671,11 @@ pub async fn chat_with_team_leader(
         });
     }
 
-    let resp: ChatTaskResponse = match parse_json_response(&raw_text) {
+    let resp: ChatTaskResponse = match parse_json_response(&raw_text.content) {
         Ok(r) => r,
-        Err(_) => ChatTaskResponse { reply: raw_text },
+        Err(_) => ChatTaskResponse {
+            reply: raw_text.content,
+        },
     };
 
     Ok(resp)

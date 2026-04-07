@@ -64,7 +64,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             setErrors({});
             setMode(initialData?.description ? 'preview' : 'edit');
         }
-    }, [isOpen, initialData]);
+    }, [isOpen]);
 
     useEffect(() => {
         if (!isOpen) return;

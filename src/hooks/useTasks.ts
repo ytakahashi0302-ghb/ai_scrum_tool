@@ -70,6 +70,7 @@ export function useTasks() {
                 description: task.description,
                 status: task.status,
                 assigneeType: task.assignee_type,
+                assignedRoleId: task.assigned_role_id ?? null,
                 priority: task.priority ?? 3
             });
             await fetchTasks();

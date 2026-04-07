@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { load, Store } from '@tauri-apps/plugin-store';
 
 export type SprintStatus = 'NOT_STARTED' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'TIME_UP';
+export type SprintTimerStartReason = 'MANUAL' | 'SPRINT_STARTED' | 'AI_TASK_LAUNCHED';
 
 export interface SprintState {
     status: SprintStatus;
@@ -9,17 +10,46 @@ export interface SprintState {
     durationMs: number; // 動的に設定されたスプリントの総時間
     startedAt: number | null;
     hasNotifiedHalfway: boolean; // 50%経過通知のフラグ
+    linkedSprintId: string | null;
+    lastStartedReason: SprintTimerStartReason | null;
 }
 
 const DEFAULT_SPRINT_TIME_MS = 1 * 60 * 60 * 1000; // 1 hour default
 
+function buildIdleState(durationMs: number): SprintState {
+    return {
+        status: 'NOT_STARTED',
+        remainingTimeMs: durationMs,
+        durationMs,
+        startedAt: null,
+        hasNotifiedHalfway: false,
+        linkedSprintId: null,
+        lastStartedReason: null,
+    };
+}
+
+function normalizeSprintState(savedState: Partial<SprintState>, durationMs: number): SprintState {
+    return {
+        ...buildIdleState(durationMs),
+        ...savedState,
+        status: savedState.status ?? 'NOT_STARTED',
+        remainingTimeMs:
+            typeof savedState.remainingTimeMs === 'number'
+                ? savedState.remainingTimeMs
+                : durationMs,
+        durationMs:
+            typeof savedState.durationMs === 'number' ? savedState.durationMs : durationMs,
+        startedAt: typeof savedState.startedAt === 'number' ? savedState.startedAt : null,
+        hasNotifiedHalfway: savedState.hasNotifiedHalfway ?? false,
+        linkedSprintId:
+            typeof savedState.linkedSprintId === 'string' ? savedState.linkedSprintId : null,
+        lastStartedReason: savedState.lastStartedReason ?? null,
+    };
+}
+
 export function useSprintTimer(projectId: string) {
     const [state, setState] = useState<SprintState>({
-        status: 'NOT_STARTED',
-        remainingTimeMs: DEFAULT_SPRINT_TIME_MS,
-        durationMs: DEFAULT_SPRINT_TIME_MS,
-        startedAt: null,
-        hasNotifiedHalfway: false
+        ...buildIdleState(DEFAULT_SPRINT_TIME_MS),
     });
     const [isLoaded, setIsLoaded] = useState(false);
     const [actualRemainingTime, setActualRemainingTime] = useState(DEFAULT_SPRINT_TIME_MS);
@@ -38,6 +68,9 @@ export function useSprintTimer(projectId: string) {
             }
         } catch (e) {
             console.error('Failed to read sprint duration from store', e);
+        }
+        if (!Number.isFinite(durationHours) || durationHours <= 0) {
+            durationHours = 1;
         }
         return durationHours * 60 * 60 * 1000;
     }, []);
@@ -59,39 +92,34 @@ export function useSprintTimer(projectId: string) {
                 const store = await load('sprint.json');
                 storeRef.current = store;
                 const key = `sprintState_${projectId}`;
-                const savedState = await store.get<SprintState>(key);
+                const latestDurationMs = await getLatestDurationMs();
+                const savedState = await store.get<Partial<SprintState>>(key);
+
                 if (savedState && mounted) {
-                    if (savedState.status === 'RUNNING' && savedState.startedAt) {
-                        const elapsed = Date.now() - savedState.startedAt;
-                        let newRemaining = savedState.remainingTimeMs - elapsed;
+                    const normalizedState = normalizeSprintState(savedState, latestDurationMs);
+                    if (normalizedState.status === 'RUNNING' && normalizedState.startedAt) {
+                        const elapsed = Date.now() - normalizedState.startedAt;
+                        let newRemaining = normalizedState.remainingTimeMs - elapsed;
                         if (newRemaining <= 0) {
-                            savedState.status = 'TIME_UP';
-                            savedState.remainingTimeMs = 0;
-                            savedState.startedAt = null;
+                            normalizedState.status = 'TIME_UP';
+                            normalizedState.remainingTimeMs = 0;
+                            normalizedState.startedAt = null;
                             newRemaining = 0;
                         }
-                        setState(savedState);
+                        setState(normalizedState);
                         setActualRemainingTime(newRemaining);
                     } else {
                         // NOT_STARTED時は古いsprint.jsonの時間ではなく、最新のsettings.jsonの時間を優先する
-                        if (savedState.status === 'NOT_STARTED') {
-                            const latestDurationMs = await getLatestDurationMs();
-                            savedState.durationMs = latestDurationMs;
-                            savedState.remainingTimeMs = latestDurationMs;
+                        if (normalizedState.status === 'NOT_STARTED') {
+                            normalizedState.durationMs = latestDurationMs;
+                            normalizedState.remainingTimeMs = latestDurationMs;
                         }
-                        setState(savedState);
-                        setActualRemainingTime(savedState.remainingTimeMs);
+                        setState(normalizedState);
+                        setActualRemainingTime(normalizedState.remainingTimeMs);
                     }
                 } else if (mounted) {
                     // 対象プロジェクトの状態が存在しない場合は初期化
-                    const latestDurationMs = await getLatestDurationMs();
-                    const initState: SprintState = {
-                        status: 'NOT_STARTED',
-                        remainingTimeMs: latestDurationMs,
-                        durationMs: latestDurationMs,
-                        startedAt: null,
-                        hasNotifiedHalfway: false
-                    };
+                    const initState = buildIdleState(latestDurationMs);
                     setState(initState);
                     setActualRemainingTime(latestDurationMs);
                 }
@@ -113,11 +141,11 @@ export function useSprintTimer(projectId: string) {
                 const updatedState = {
                     ...state,
                     durationMs: latestDurationMs,
-                    remainingTimeMs: latestDurationMs
+                    remainingTimeMs: latestDurationMs,
                 };
                 setState(updatedState);
                 setActualRemainingTime(latestDurationMs);
-                saveState(updatedState);
+                void saveState(updatedState);
             }
         };
 
@@ -161,16 +189,27 @@ export function useSprintTimer(projectId: string) {
         return () => clearInterval(intervalId);
     }, [isLoaded, state, saveState]);
 
-    const startSprint = async () => {
-        const durationMs = await getLatestDurationMs();
+    const getConfiguredDurationMs = useCallback(async () => {
+        return getLatestDurationMs();
+    }, [getLatestDurationMs]);
 
-        await saveState({
+    const startSprint = async (options?: {
+        linkedSprintId?: string | null;
+        reason?: SprintTimerStartReason;
+    }) => {
+        const durationMs = await getLatestDurationMs();
+        const nextState: SprintState = {
             status: 'RUNNING',
             remainingTimeMs: durationMs,
-            durationMs: durationMs,
+            durationMs,
             startedAt: Date.now(),
-            hasNotifiedHalfway: false
-        });
+            hasNotifiedHalfway: false,
+            linkedSprintId: options?.linkedSprintId ?? state.linkedSprintId ?? null,
+            lastStartedReason: options?.reason ?? 'MANUAL',
+        };
+
+        setActualRemainingTime(durationMs);
+        await saveState(nextState);
     };
 
     const pauseSprint = async () => {
@@ -189,9 +228,57 @@ export function useSprintTimer(projectId: string) {
             await saveState({
                 ...state,
                 status: 'RUNNING',
-                startedAt: Date.now()
+                startedAt: Date.now(),
+                lastStartedReason: state.lastStartedReason ?? 'MANUAL',
             });
         }
+    };
+
+    const ensureTimerRunning = async (
+        reason: SprintTimerStartReason,
+        linkedSprintId: string | null = null,
+    ) => {
+        const nextLinkedSprintId = linkedSprintId ?? state.linkedSprintId ?? null;
+
+        if (state.status === 'RUNNING') {
+            if (
+                state.linkedSprintId === nextLinkedSprintId &&
+                state.lastStartedReason === reason
+            ) {
+                return false;
+            }
+
+            await saveState({
+                ...state,
+                linkedSprintId: nextLinkedSprintId,
+                lastStartedReason: reason,
+            });
+            return false;
+        }
+
+        if (state.status === 'PAUSED') {
+            await saveState({
+                ...state,
+                status: 'RUNNING',
+                startedAt: Date.now(),
+                linkedSprintId: nextLinkedSprintId,
+                lastStartedReason: reason,
+            });
+            return true;
+        }
+
+        const durationMs = await getLatestDurationMs();
+        setActualRemainingTime(durationMs);
+        await saveState({
+            status: 'RUNNING',
+            remainingTimeMs: durationMs,
+            durationMs,
+            startedAt: Date.now(),
+            hasNotifiedHalfway: false,
+            linkedSprintId: nextLinkedSprintId,
+            lastStartedReason: reason,
+        });
+        return true;
     };
 
     const completeSprint = async () => {
@@ -199,28 +286,26 @@ export function useSprintTimer(projectId: string) {
             ...state,
             status: 'COMPLETED',
             remainingTimeMs: actualRemainingTime,
-            startedAt: null
+            startedAt: null,
         });
     };
 
     const resetSprint = async () => {
         const latestDurationMs = await getLatestDurationMs();
         setActualRemainingTime(latestDurationMs);
-        await saveState({
-            status: 'NOT_STARTED',
-            remainingTimeMs: latestDurationMs,
-            durationMs: latestDurationMs,
-            startedAt: null,
-            hasNotifiedHalfway: false
-        });
+        await saveState(buildIdleState(latestDurationMs));
     };
 
     return {
         status: state.status,
         remainingTimeMs: state.status === 'RUNNING' ? actualRemainingTime : state.remainingTimeMs,
         durationMs: state.durationMs,
+        linkedSprintId: state.linkedSprintId,
+        lastStartedReason: state.lastStartedReason,
         isLoaded,
+        getConfiguredDurationMs,
         startSprint,
+        ensureTimerRunning,
         pauseSprint,
         resumeSprint,
         completeSprint,

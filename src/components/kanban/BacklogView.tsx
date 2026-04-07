@@ -6,11 +6,13 @@ import { StoryFormModal, StoryFormData } from '../board/StoryFormModal';
 import { v4 as uuidv4 } from 'uuid';
 import { Story, Task } from '../../types';
 import toast from 'react-hot-toast';
+import { useSprintTimer } from '../../context/SprintTimerContext';
 
 // 数値そのままでソート（小さいほど優先度が高い = 先頭に表示）
 
 export function BacklogView() {
     const { stories, tasks, sprints, addStory, updateStory, deleteStory, createPlannedSprint, startSprint, assignStoryToSprint } = useScrum();
+    const { ensureTimerRunning, getConfiguredDurationMs } = useSprintTimer();
     const [isAddStoryModalOpen, setIsAddStoryModalOpen] = useState(false);
     const [storyFormInitialData, setStoryFormInitialData] = useState<Partial<StoryFormData> | undefined>();
     const [editingStory, setEditingStory] = useState<Story | null>(null);
@@ -79,10 +81,16 @@ export function BacklogView() {
             return;
         }
         
-        // Example: duration placeholder, normally set by timer or settings
-        const durationMs = 7 * 24 * 60 * 60 * 1000;
         try {
+            const durationMs = await getConfiguredDurationMs();
             await startSprint(plannedSprint.id, durationMs);
+            try {
+                await ensureTimerRunning('SPRINT_STARTED', plannedSprint.id);
+            } catch (timerError) {
+                console.error('Failed to auto-start sprint timer after sprint start', timerError);
+                toast.error('スプリントは開始しましたが、タイマーの自動開始に失敗しました。手動で開始してください。');
+                return;
+            }
             toast.success('スプリントを開始しました！Boardタブに移動してください。');
         } catch (e) {
             console.error(e);

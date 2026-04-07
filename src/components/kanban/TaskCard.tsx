@@ -18,6 +18,7 @@ import {
 import { TaskFormModal, TaskFormData } from '../board/TaskFormModal';
 import { useScrum } from '../../context/ScrumContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useSprintTimer } from '../../context/SprintTimerContext';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import toast from 'react-hot-toast';
@@ -163,6 +164,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [] }: Ta
         getTaskBlockers,
         getBlockerIds,
     } = useScrum();
+    const { ensureTimerRunning } = useSprintTimer();
     const { projects, currentProjectId } = useWorkspace();
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [previewInfo, setPreviewInfo] = useState<PreviewServerInfo | null>(null);
@@ -308,6 +310,12 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [] }: Ta
                     taskId: task.id,
                     cwd: projectPath,
                 });
+                try {
+                    await ensureTimerRunning('AI_TASK_LAUNCHED', task.sprint_id ?? null);
+                } catch (timerError) {
+                    console.error('Failed to auto-start sprint timer after Claude launch', timerError);
+                    toast.error('Claude は起動しましたが、タイマーの自動開始に失敗しました。必要に応じて手動で開始してください。');
+                }
                 await updateTaskStatus(task.id, 'In Progress');
                 toast.success('Claudeでの開発を開始しました (ターミナルをご確認ください)');
             } catch (err) {
@@ -315,7 +323,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [] }: Ta
                 window.dispatchEvent(new CustomEvent('claude_error', { detail: String(err) }));
             }
         },
-        [assignedRoleId, isLaunchDisabled, projectPath, task.id, updateTaskStatus],
+        [assignedRoleId, ensureTimerRunning, isLaunchDisabled, projectPath, task.id, task.sprint_id, updateTaskStatus],
     );
 
     const handleStartPreview = useCallback(async () => {
@@ -457,6 +465,12 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [] }: Ta
                 cwd: projectPath,
                 additionalContext,
             });
+            try {
+                await ensureTimerRunning('AI_TASK_LAUNCHED', task.sprint_id ?? null);
+            } catch (timerError) {
+                console.error('Failed to auto-start sprint timer after Claude rerun', timerError);
+                toast.error('AI は再実行しましたが、タイマーの自動開始に失敗しました。必要に応じて手動で開始してください。');
+            }
             await updateTaskStatus(task.id, 'In Progress');
             setHasConflict(false);
             setIsConflictModalOpen(false);
@@ -467,7 +481,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [] }: Ta
         } finally {
             setIsRerunning(false);
         }
-    }, [assignedRoleId, conflictFiles, projectPath, task.id, updateTaskStatus]);
+    }, [assignedRoleId, conflictFiles, ensureTimerRunning, projectPath, task.id, task.sprint_id, updateTaskStatus]);
 
     const handleDiscardWorktree = useCallback(async () => {
         if (!projectPath) {

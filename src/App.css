@@ -6,3 +6,33 @@
     @apply bg-gray-50 text-gray-900;
   }
 }
+
+@layer components {
+  .app-splitter {
+    @apply relative shrink-0 bg-slate-200/90 transition-colors duration-150;
+  }
+
+  .app-splitter::before {
+    content: "";
+    @apply absolute inset-0 bg-gradient-to-b from-transparent via-blue-300/30 to-transparent opacity-0 transition-opacity duration-150;
+  }
+
+  .app-splitter:hover {
+    @apply bg-blue-300/80;
+  }
+
+  .app-splitter:hover::before,
+  .app-splitter:active::before {
+    @apply opacity-100;
+  }
+
+  .app-splitter-x {
+    width: 10px;
+    cursor: col-resize;
+  }
+
+  .app-splitter-y {
+    height: 10px;
+    cursor: row-resize;
+  }
+}
