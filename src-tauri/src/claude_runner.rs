@@ -189,7 +189,7 @@ fn create_prompt_file(task_id: &str, prompt: &str) -> Result<PathBuf, String> {
     let timestamp = current_timestamp_millis()?;
 
     let file_name = format!(
-        "microscrum-claude-{}-{}.md",
+        "vicara-claude-{}-{}.md",
         sanitize_for_filename(task_id),
         timestamp
     );
@@ -861,6 +861,30 @@ pub async fn execute_claude_task(
         role.model,
         max_concurrent_agents
     );
+
+    let existing_worktree_record = db::get_worktree_by_task_id(&app_handle, &task.id).await?;
+    if existing_worktree_record
+        .as_ref()
+        .map(|record| record.status == "conflict")
+        .unwrap_or(false)
+    {
+        worktree::remove_worktree(
+            app_handle.clone(),
+            app_handle.state::<worktree::PreviewState>(),
+            app_handle.state::<worktree::WorktreeState>(),
+            cwd.clone(),
+            task.id.clone(),
+        )
+        .await?;
+        log::info!(
+            "Reset conflicted worktree before rerun: task_id={}, branch={}",
+            task.id,
+            existing_worktree_record
+                .as_ref()
+                .map(|record| record.branch_name.as_str())
+                .unwrap_or("unknown")
+        );
+    }
 
     let existing_worktree = worktree::get_worktree_status(
         app_handle.state::<worktree::WorktreeState>(),

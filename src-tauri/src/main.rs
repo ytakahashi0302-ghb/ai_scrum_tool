@@ -3,5 +3,5 @@
 
 fn main() {
     env_logger::init();
-    ai_scrum_tool_lib::run()
+    vicara_lib::run()
 }

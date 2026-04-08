@@ -114,7 +114,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(
             SqlBuilder::default()
-                .add_migrations("sqlite:ai-scrum.db", migrations)
+                .add_migrations("sqlite:vicara.db", migrations)
                 .build(),
         )
         .manage(pty_manager::PtyManager::new())
@@ -196,7 +196,7 @@ pub fn run() {
             scaffolding::generate_claude_settings,
             db::get_all_task_dependencies,
             db::set_task_dependencies,
-            db::get_worktree_record,
+            worktree::get_worktree_record,
             llm_observability::get_project_llm_usage_summary,
             llm_observability::get_task_llm_usage_summary,
             llm_observability::list_project_task_llm_usage,

@@ -27,8 +27,8 @@ import { GlobalSettingsModal } from "./components/ui/GlobalSettingsModal";
 type AppView = "kanban" | "inception";
 type ResizeHandle = "sidebar" | "terminal" | null;
 
-const SIDEBAR_RATIO_STORAGE_KEY = "microscrum.layout.sidebarRatio";
-const TERMINAL_RATIO_STORAGE_KEY = "microscrum.layout.terminalRatio";
+const SIDEBAR_RATIO_STORAGE_KEY = "vicara.layout.sidebarRatio";
+const TERMINAL_RATIO_STORAGE_KEY = "vicara.layout.terminalRatio";
 const DEFAULT_SIDEBAR_RATIO = 0.7;
 const DEFAULT_TERMINAL_RATIO = 0.38;
 const MIN_MAIN_PANE_WIDTH = 420;
@@ -71,7 +71,7 @@ function readStoredRatio(key: string, fallback: number) {
 function LlmUsagePill({ projectId }: { projectId: string }) {
     const { summary, loading, error } = useLlmUsageSummary(projectId);
 
-    if (!projectId || projectId === "default") {
+    if (!projectId) {
         return null;
     }
 
@@ -149,10 +149,10 @@ function AppHeader({
                             </div>
                             <div className="min-w-0">
                                 <div className="text-lg font-bold tracking-tight text-slate-900">
-                                    MicroScrum AI
+                                    Vicara
                                 </div>
                                 <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-                                    Pro Team Orchestrator
+                                    人間中心のAIチーム開発
                                 </div>
                             </div>
                         </div>
@@ -367,10 +367,10 @@ function AppContent() {
                         <AlertTriangle size={28} />
                     </div>
                     <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                        MicroScrum AI の利用には Git のインストールが必要です
+                        Vicara の利用には Git のインストールが必要です
                     </h1>
                     <p className="mt-3 text-sm leading-6 text-slate-600">
-                        Epic 31 以降の MicroScrum AI は、Git Worktree を前提として AI 開発環境を隔離します。
+                        Vicara は Git Worktree を前提として AI 開発環境を隔離します。
                         この PC に Git が見つからないため、安全のため処理を中断しています。
                     </p>
                     {gitStatus.message && (

@@ -52,7 +52,7 @@ impl WorktreeState {
     }
 }
 
-const WORKTREE_DIR: &str = ".scrum-ai-worktrees";
+const WORKTREE_DIR: &str = ".vicara-worktrees";
 
 fn worktree_path(project_path: &str, task_id: &str) -> PathBuf {
     Path::new(project_path)
@@ -62,6 +62,69 @@ fn worktree_path(project_path: &str, task_id: &str) -> PathBuf {
 
 fn branch_name(task_id: &str) -> String {
     format!("feature/task-{}", task_id)
+}
+
+fn normalize_path_for_compare(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+
+    #[cfg(windows)]
+    {
+        normalized.to_lowercase()
+    }
+
+    #[cfg(not(windows))]
+    {
+        normalized
+    }
+}
+
+fn list_registered_worktree_paths(project_path: &Path) -> Result<Vec<String>, String> {
+    let output = git::run_git(project_path, &["worktree", "list", "--porcelain"])?;
+    Ok(output
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .map(PathBuf::from)
+        .map(|path| normalize_path_for_compare(&path))
+        .collect())
+}
+
+fn is_registered_worktree_path(project_path: &Path, worktree_path: &Path) -> Result<bool, String> {
+    let target = normalize_path_for_compare(worktree_path);
+    let registered = list_registered_worktree_paths(project_path)?;
+    Ok(registered.into_iter().any(|path| path == target))
+}
+
+fn branch_exists(project_path: &Path, branch_name: &str) -> Result<bool, String> {
+    let (success, _, _) = git::run_git_raw(
+        project_path,
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{}", branch_name),
+        ],
+    )?;
+    Ok(success)
+}
+
+fn cleanup_stale_worktree_directory(project_path: &Path, worktree_path: &Path) {
+    remove_worktree_node_modules_link(worktree_path);
+
+    if worktree_path.exists() {
+        let _ = std::fs::remove_dir_all(worktree_path);
+    }
+
+    let _ = git::run_git(project_path, &["worktree", "prune"]);
+}
+
+fn merge_failed_due_to_conflict(stdout: &str, stderr: &str) -> bool {
+    !git::parse_conflict_files(&format!("{}\n{}", stdout, stderr)).is_empty()
+        || stdout.contains("CONFLICT")
+        || stderr.contains("CONFLICT")
+}
+
+fn infer_project_root_from_worktree_path(worktree_path: &Path) -> Option<PathBuf> {
+    worktree_path.parent()?.parent().map(Path::to_path_buf)
 }
 
 async fn resolve_worktree_path_for_task(
@@ -231,6 +294,14 @@ pub async fn create_worktree(
     let wt_path = worktree_path(&project_path, &task_id);
     let br_name = branch_name(&task_id);
 
+    if wt_path.exists() && !is_registered_worktree_path(project, &wt_path)? {
+        log::warn!(
+            "Found stale worktree directory before create_worktree. Cleaning it up: {}",
+            wt_path.display()
+        );
+        cleanup_stale_worktree_directory(project, &wt_path);
+    }
+
     let parent = wt_path
         .parent()
         .ok_or("ワークツリーの親ディレクトリが不正です")?;
@@ -336,6 +407,11 @@ pub async fn merge_worktree(
     let project = Path::new(&project_path);
     let wt_path = worktree_path(&project_path, &task_id);
     let br_name = branch_name(&task_id);
+    let worktree_registered = if wt_path.exists() {
+        is_registered_worktree_path(project, &wt_path)?
+    } else {
+        false
+    };
 
     {
         let mut worktrees = state
@@ -347,7 +423,32 @@ pub async fn merge_worktree(
         }
     }
 
-    if wt_path.exists() {
+    if wt_path.exists() && !worktree_registered {
+        log::warn!(
+            "merge_worktree detected stale unregistered directory. Cleaning it up: task_id={}, path={}",
+            task_id,
+            wt_path.display()
+        );
+        cleanup_stale_worktree_directory(project, &wt_path);
+    }
+
+    if !branch_exists(project, &br_name)? {
+        {
+            let mut worktrees = state
+                .worktrees
+                .lock()
+                .map_err(|e| format!("State lock error: {}", e))?;
+            worktrees.remove(&task_id);
+        }
+
+        let _ = db::update_worktree_record_state(&app_handle, &task_id, None, None, "removed").await;
+
+        return Ok(MergeResult::Error {
+            message: "マージ対象の task branch が見つかりません。古い競合状態を掃除したため、「AIで再実行する」で最新 main からやり直してください。".to_string(),
+        });
+    }
+
+    if wt_path.exists() && worktree_registered {
         let _ = git::auto_commit_if_needed(&wt_path);
     }
 
@@ -365,13 +466,36 @@ pub async fn merge_worktree(
             "merge",
             "--no-ff",
             "-m",
-            &format!("[MicroScrum AI] Merge task-{}", task_id),
+            &format!("[Vicara] Merge task-{}", task_id),
             &br_name,
         ],
     )?;
 
     if !success {
         let _ = git::run_git(project, &["merge", "--abort"]);
+
+        if !merge_failed_due_to_conflict(&stdout, &stderr) {
+            {
+                let mut worktrees = state
+                    .worktrees
+                    .lock()
+                    .map_err(|e| format!("State lock error: {}", e))?;
+                if let Some(info) = worktrees.get_mut(&task_id) {
+                    info.status = WorktreeStatus::Active;
+                }
+            }
+
+            return Ok(MergeResult::Error {
+                message: if !stderr.is_empty() {
+                    stderr
+                } else if !stdout.is_empty() {
+                    stdout
+                } else {
+                    "競合ではない理由でマージに失敗しました。".to_string()
+                },
+            });
+        }
+
         let conflicting_files = git::parse_conflict_files(&format!("{}\n{}", stdout, stderr));
 
         {
@@ -424,17 +548,22 @@ pub async fn get_worktree_status(
     task_id: String,
 ) -> Result<Option<WorktreeInfo>, String> {
     {
-        let worktrees = state
+        let mut worktrees = state
             .worktrees
             .lock()
             .map_err(|e| format!("State lock error: {}", e))?;
         if let Some(info) = worktrees.get(&task_id) {
-            return Ok(Some(info.clone()));
+            let worktree_path = PathBuf::from(&info.worktree_path);
+            if is_registered_worktree_path(Path::new(&project_path), &worktree_path)? {
+                return Ok(Some(info.clone()));
+            }
+
+            worktrees.remove(&task_id);
         }
     }
 
     let wt_path = worktree_path(&project_path, &task_id);
-    if wt_path.exists() {
+    if wt_path.exists() && is_registered_worktree_path(Path::new(&project_path), &wt_path)? {
         let br_name = branch_name(&task_id);
         return Ok(Some(WorktreeInfo {
             task_id,
@@ -443,6 +572,45 @@ pub async fn get_worktree_status(
             status: WorktreeStatus::Active,
         }));
     }
+
+    Ok(None)
+}
+
+#[tauri::command]
+pub async fn get_worktree_record(
+    app_handle: AppHandle,
+    task_id: String,
+) -> Result<Option<db::WorktreeRecord>, String> {
+    let Some(record) = db::get_worktree_by_task_id(&app_handle, &task_id).await? else {
+        return Ok(None);
+    };
+
+    let worktree_path = PathBuf::from(&record.worktree_path);
+    let Some(project_path) = infer_project_root_from_worktree_path(&worktree_path) else {
+        return Ok(Some(record));
+    };
+
+    let registered = if worktree_path.exists() {
+        is_registered_worktree_path(&project_path, &worktree_path)?
+    } else {
+        false
+    };
+    let branch_still_exists = branch_exists(&project_path, &record.branch_name)?;
+
+    if registered && branch_still_exists {
+        return Ok(Some(record));
+    }
+
+    if worktree_path.exists() && !registered {
+        log::warn!(
+            "get_worktree_record detected stale worktree directory. Cleaning it up: task_id={}, path={}",
+            task_id,
+            worktree_path.display()
+        );
+        cleanup_stale_worktree_directory(&project_path, &worktree_path);
+    }
+
+    let _ = db::update_worktree_record_state(&app_handle, &task_id, None, None, "removed").await;
 
     Ok(None)
 }
@@ -629,7 +797,7 @@ mod tests {
         let path = worktree_path("/project", "abc123");
         assert_eq!(
             path,
-            PathBuf::from("/project/.scrum-ai-worktrees/task-abc123")
+            PathBuf::from("/project/.vicara-worktrees/task-abc123")
         );
     }
 
@@ -649,7 +817,7 @@ mod tests {
         ensure_gitignore_entry(repo.path()).expect("gitignore failed");
 
         let gitignore = fs::read_to_string(repo.path().join(".gitignore")).unwrap();
-        assert!(gitignore.contains(".scrum-ai-worktrees/"));
+        assert!(gitignore.contains(".vicara-worktrees/"));
 
         fs::create_dir_all(wt_path.parent().unwrap()).unwrap();
         git::run_git(
@@ -715,7 +883,7 @@ mod tests {
                 "merge",
                 "--no-ff",
                 "-m",
-                &format!("[MicroScrum AI] Merge task-{}", task_id),
+                &format!("[Vicara] Merge task-{}", task_id),
                 &br_name,
             ],
         )
@@ -784,6 +952,22 @@ mod tests {
         );
         let _ = git::run_git(repo.path(), &["worktree", "prune"]);
         let _ = git::run_git(repo.path(), &["branch", "-D", &br_name]);
+    }
+
+    #[test]
+    fn test_plain_directory_is_not_treated_as_registered_worktree() {
+        let repo = setup_test_repo();
+        let project_path = repo.path().to_string_lossy().to_string();
+        let task_id = "stale-dir";
+        let wt_path = worktree_path(&project_path, task_id);
+
+        fs::create_dir_all(&wt_path).unwrap();
+        fs::write(wt_path.join("placeholder.txt"), "stale\n").unwrap();
+
+        assert!(
+            !is_registered_worktree_path(repo.path(), &wt_path).unwrap(),
+            "plain nested directory must not be treated as a git worktree"
+        );
     }
 
     #[test]
@@ -914,7 +1098,7 @@ mod tests {
         let content = fs::read_to_string(repo.path().join(".gitignore")).unwrap();
         let count = content
             .lines()
-            .filter(|line| line.trim() == ".scrum-ai-worktrees/")
+            .filter(|line| line.trim() == ".vicara-worktrees/")
             .count();
         assert_eq!(count, 1, "Should appear exactly once, got: {}", count);
     }

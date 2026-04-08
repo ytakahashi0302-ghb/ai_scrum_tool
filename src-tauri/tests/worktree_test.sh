@@ -34,7 +34,7 @@ git commit -m "Initial commit" >/dev/null 2>&1
 mkdir -p node_modules/some-pkg
 echo '{}' > node_modules/some-pkg/package.json
 
-WORKTREE_BASE=".scrum-ai-worktrees"
+WORKTREE_BASE=".vicara-worktrees"
 TASK_ID="test-001"
 WT_PATH="${WORKTREE_BASE}/task-${TASK_ID}"
 BRANCH="feature/task-${TASK_ID}"
@@ -67,7 +67,7 @@ echo ""
 echo "Test 2: .gitignore management"
 
 # Simulate ensure_gitignore_entry
-ENTRY=".scrum-ai-worktrees/"
+ENTRY=".vicara-worktrees/"
 if ! grep -qx "$ENTRY" .gitignore 2>/dev/null; then
     echo "$ENTRY" >> .gitignore
 fi
@@ -114,7 +114,7 @@ echo "Test 4: Auto-commit in worktree"
 echo "new content" > "$WT_PATH/feature.txt"
 cd "$WT_PATH"
 git add -A >/dev/null 2>&1
-git commit -m "[MicroScrum AI] 自動コミット: エージェント作業完了" >/dev/null 2>&1
+git commit -m "[Vicara] 自動コミット: エージェント作業完了" >/dev/null 2>&1
 cd "$PROJECT"
 
 LAST_MSG=$(cd "$WT_PATH" && git log --oneline -1)
@@ -153,7 +153,7 @@ git diff --cached --quiet || git commit -m "Update gitignore" >/dev/null 2>&1
 # Remove symlink before merge cleanup
 rm -f "$WT_PATH/node_modules"
 
-git merge --no-ff -m "[MicroScrum AI] Merge task-${TASK_ID}" "$BRANCH" >/dev/null 2>&1
+git merge --no-ff -m "[Vicara] Merge task-${TASK_ID}" "$BRANCH" >/dev/null 2>&1
 MERGE_OK=$?
 
 if [ $MERGE_OK -eq 0 ]; then

@@ -21,7 +21,7 @@ export function useLlmUsageSummary(projectId: string): UseLlmUsageSummaryResult 
     const [error, setError] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
-        if (!projectId || projectId === 'default') {
+        if (!projectId) {
             setSummary(null);
             setError(null);
             return;

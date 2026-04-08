@@ -6,11 +6,11 @@
       "Bash(find C:/Users/green/.cargo/registry/src -path */filedescriptor*/*.rs -name *.rs)",
       "Bash(cargo clippy:*)",
       "Bash(npx tsc:*)",
-      "Read(//c/Users/green/AppData/Roaming/com.green.ai-scrum-tool/**)",
-      "Bash(sqlite3 ai-scrum.db \"SELECT version, checksum FROM tauri_plugin_sql_migrations ORDER BY version;\")",
-      "Bash(powershell.exe -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Item ''C:/Users/green/AppData/Roaming/com.green.ai-scrum-tool/ai-scrum.db'' | Select-Object Length, LastWriteTime\")",
-      "Bash(powershell.exe -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; python3 -c \"\"import sqlite3; conn = sqlite3.connect\\(''C:/Users/green/AppData/Roaming/com.green.ai-scrum-tool/ai-scrum.db''\\); cur = conn.cursor\\(\\); cur.execute\\(''SELECT version, checksum FROM tauri_plugin_sql_migrations ORDER BY version''\\); print\\(cur.fetchall\\(\\)\\); conn.close\\(\\)\"\"\")",
-      "Bash(powershell.exe -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; python3 -c \"\"import sqlite3; conn = sqlite3.connect\\(''C:/Users/green/AppData/Roaming/com.green.ai-scrum-tool/ai-scrum.db''\\); cur = conn.cursor\\(\\); cur.execute\\(\\\\\"\"SELECT name FROM sqlite_master WHERE type=''table'' ORDER BY name\\\\\"\"\\); print\\(cur.fetchall\\(\\)\\); conn.close\\(\\)\"\"\")",
+      "Read(//c/Users/green/AppData/Roaming/com.vicara.app/**)",
+      "Bash(sqlite3 vicara.db \"SELECT version, checksum FROM tauri_plugin_sql_migrations ORDER BY version;\")",
+      "Bash(powershell.exe -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Item ''C:/Users/green/AppData/Roaming/com.vicara.app/vicara.db'' | Select-Object Length, LastWriteTime\")",
+      "Bash(powershell.exe -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; python3 -c \"\"import sqlite3; conn = sqlite3.connect\\(''C:/Users/green/AppData/Roaming/com.vicara.app/vicara.db''\\); cur = conn.cursor\\(\\); cur.execute\\(''SELECT version, checksum FROM tauri_plugin_sql_migrations ORDER BY version''\\); print\\(cur.fetchall\\(\\)\\); conn.close\\(\\)\"\"\")",
+      "Bash(powershell.exe -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; python3 -c \"\"import sqlite3; conn = sqlite3.connect\\(''C:/Users/green/AppData/Roaming/com.vicara.app/vicara.db''\\); cur = conn.cursor\\(\\); cur.execute\\(\\\\\"\"SELECT name FROM sqlite_master WHERE type=''table'' ORDER BY name\\\\\"\"\\); print\\(cur.fetchall\\(\\)\\); conn.close\\(\\)\"\"\")",
       "Bash(python3 -c \":*)",
       "Bash(powershell.exe -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; vssadmin list shadows 2>&1 | Select-String -Pattern ''Shadow Copy|Creation Time'' | Select-Object -First 10\")"
     ]

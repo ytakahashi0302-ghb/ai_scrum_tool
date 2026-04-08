@@ -10,6 +10,91 @@ interface ChatMessage {
     content: string;
 }
 
+type InceptionTab = 'CONTEXT' | 'ARCHITECTURE' | 'RULE';
+type InceptionFilename = 'PRODUCT_CONTEXT.md' | 'ARCHITECTURE.md' | 'Rule.md';
+
+const PHASE_GUIDE_MESSAGES: Record<number, string> = {
+    1: "Phase 1 を開始します。\nプロダクトのコア価値とターゲット (Why) について教えてください。",
+    2: "次のフェーズへ進みました。\nPhase 2 (Not List): やらないことリストについて決めていきましょう。",
+    3: "次のフェーズへ進みました。\nPhase 3 (What): 技術スタックとアーキテクチャの制約について教えてください。",
+    4: "次のフェーズへ進みました。\nPhase 4 (How): プロジェクト固有の開発ルールやAIへの追加ルールはありますか？",
+    5: "次のフェーズへ進みました。\nPhase 5: 初期足場構築（Scaffolding）を開始します。",
+};
+
+function getPhaseGuideMessage(phase: number, mode: 'advance' | 'resume' = 'advance') {
+    if (mode === 'advance') {
+        return PHASE_GUIDE_MESSAGES[phase] ?? PHASE_GUIDE_MESSAGES[1];
+    }
+
+    if (phase === 1) {
+        return "Phase 1 に戻りました。\nプロダクトのコア価値とターゲット (Why) を更新しましょう。";
+    }
+    if (phase === 2) {
+        return "Phase 2 に戻りました。\nやらないことリスト (Not List) を見直しましょう。";
+    }
+    if (phase === 3) {
+        return "Phase 3 に戻りました。\n技術スタックとアーキテクチャ方針を更新しましょう。";
+    }
+    if (phase === 4) {
+        return "Phase 4 に戻りました。\n開発ルールや AI への追加指示を更新しましょう。";
+    }
+    return "Phase 5 に移動しました。\n初期足場構築（Scaffolding）を進めます。";
+}
+
+function detectPhaseMarker(content: string): number | null {
+    const match = content.match(/Phase\s*([1-5])(?:\s*\/\s*5)?/i);
+    if (!match) {
+        return null;
+    }
+
+    const phase = Number.parseInt(match[1], 10);
+    return Number.isFinite(phase) ? phase : null;
+}
+
+function getMessagesForPhase(messages: ChatMessage[], targetPhase: number) {
+    let phaseCursor = 1;
+
+    return messages.filter((message) => {
+        if (message.role === 'assistant') {
+            const detectedPhase = detectPhaseMarker(message.content);
+            if (detectedPhase !== null) {
+                phaseCursor = detectedPhase;
+            }
+        }
+
+        return phaseCursor === targetPhase;
+    });
+}
+
+function normalizeInceptionFilename(filename: string): InceptionFilename | null {
+    const normalized = filename.trim().toLowerCase();
+
+    if (normalized === 'product_context.md') {
+        return 'PRODUCT_CONTEXT.md';
+    }
+    if (normalized === 'architecture.md') {
+        return 'ARCHITECTURE.md';
+    }
+    if (normalized === 'rule.md') {
+        return 'Rule.md';
+    }
+    return null;
+}
+
+function getTabForFilename(filename: InceptionFilename): InceptionTab {
+    if (filename === 'PRODUCT_CONTEXT.md') {
+        return 'CONTEXT';
+    }
+    if (filename === 'ARCHITECTURE.md') {
+        return 'ARCHITECTURE';
+    }
+    return 'RULE';
+}
+
+function looksLikeDocumentCompletionClaim(reply: string) {
+    return /(PRODUCT_CONTEXT|ARCHITECTURE|Rule)\.md.+(生成|更新)しました/.test(reply);
+}
+
 export function InceptionDeck() {
     const { projects, currentProjectId } = useWorkspace();
     const currentProject = projects.find(p => p.id === currentProjectId);
@@ -18,7 +103,7 @@ export function InceptionDeck() {
     const [currentPhase, setCurrentPhase] = useState<number>(1);
     
     // Tab Management
-    const [activeTab, setActiveTab] = useState<'CONTEXT' | 'ARCHITECTURE' | 'RULE'>('CONTEXT');
+    const [activeTab, setActiveTab] = useState<InceptionTab>('CONTEXT');
     
     // Chat and File State
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -57,7 +142,7 @@ export function InceptionDeck() {
                     RULE: rule || ''
                 });
 
-                let initialMessage = "Phase 1 を開始します。\nプロダクトのコア価値とターゲット (Why) について教えてください。";
+                let initialMessage = getPhaseGuideMessage(1);
                 if (hasExistingFiles) {
                     initialMessage = "既存のファイルが見つかりました。\n右のプレビューを確認し、この内容をベースに修正を加えますか？それとも既存のまま次へ進みますか？\n" + initialMessage;
                 }
@@ -114,12 +199,17 @@ export function InceptionDeck() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    const navigateToPhase = (targetPhase: number) => {
+        setCurrentPhase(targetPhase);
+        setMessages((prev) => [...prev, { role: 'assistant', content: getPhaseGuideMessage(targetPhase, 'resume') }]);
+    };
+
     const handleSendMessage = async () => {
         if (!inputText.trim() || !currentProject?.local_path) return;
 
         const userMsg: ChatMessage = { role: 'user', content: inputText };
-        const newMessages = [...messages, userMsg];
-        setMessages(newMessages);
+        const requestMessages = [...getMessagesForPhase(messages, currentPhase), userMsg];
+        setMessages((prev) => [...prev, userMsg]);
         setInputText('');
         setIsProcessing(true);
 
@@ -132,65 +222,71 @@ export function InceptionDeck() {
             }>('chat_inception', {
                 projectId: currentProject.id,
                 phase: currentPhase,
-                messagesHistory: newMessages,
+                messagesHistory: requestMessages,
             });
 
-            setMessages([...newMessages, { role: 'assistant', content: response.reply }]);
+            setMessages((prev) => [...prev, { role: 'assistant', content: response.reply }]);
+
+            let didWritePatch = false;
 
             // パッチがある場合はファイルに書き込み
             if (response.is_finished && response.patch_target && response.patch_content) {
-                const filename = response.patch_target; // AI が指定したファイル名を使用
+                const filename = normalizeInceptionFilename(response.patch_target);
 
-                // Phase 2 (PRODUCT_CONTEXT.md追記) / Phase 4 (Rule.md追記) は append=true
-                const append = currentPhase === 2 || currentPhase === 4;
-
-                await invoke('write_inception_file', {
-                    localPath: currentProject.local_path,
-                    filename,
-                    content: response.patch_content,
-                    append,
-                });
-
-                toast.success(`${filename} を更新しました`);
-
-                // fileContentsのStateを更新（追記 or 上書き）
-                const tabKey = filename === 'PRODUCT_CONTEXT.md' ? 'CONTEXT'
-                             : filename === 'ARCHITECTURE.md' ? 'ARCHITECTURE'
-                             : 'RULE';
-
-                if (append) {
-                    // 追記: 既存内容の末尾に patch_content を結合
-                    setFileContents(prev => ({
-                        ...prev,
-                        [tabKey]: prev[tabKey] + '\n' + response.patch_content,
-                    }));
+                if (!filename) {
+                    toast.error(`AI が未知のファイル名を返しました: ${response.patch_target}`);
                 } else {
-                    // 上書き: ファイルから最新内容を再読み込み
-                    const updatedContent = await invoke<string | null>('read_inception_file', {
+                    // Phase 2 (PRODUCT_CONTEXT.md追記) / Phase 4 (Rule.md追記) は append=true
+                    const append = currentPhase === 2 || currentPhase === 4;
+
+                    await invoke('write_inception_file', {
                         localPath: currentProject.local_path,
                         filename,
+                        content: response.patch_content,
+                        append,
                     });
-                    if (updatedContent) {
+
+                    didWritePatch = true;
+                    toast.success(`${filename} を更新しました`);
+
+                    // fileContentsのStateを更新（追記 or 上書き）
+                    const tabKey = getTabForFilename(filename);
+
+                    if (append) {
+                        // 追記: 既存内容の末尾に patch_content を結合
                         setFileContents(prev => ({
                             ...prev,
-                            [tabKey]: updatedContent,
+                            [tabKey]: prev[tabKey] ? `${prev[tabKey]}\n${response.patch_content}` : response.patch_content,
                         }));
+                    } else {
+                        // 上書き: ファイルから最新内容を再読み込み
+                        const updatedContent = await invoke<string | null>('read_inception_file', {
+                            localPath: currentProject.local_path,
+                            filename,
+                        });
+                        if (updatedContent !== null) {
+                            setFileContents(prev => ({
+                                ...prev,
+                                [tabKey]: updatedContent,
+                            }));
+                        }
                     }
+
+                    setActiveTab(tabKey);
                 }
             }
 
             // フェーズ遷移: is_finished なら次へ（パッチ有無に関わらず）
             if (response.is_finished && currentPhase < 5) {
-                const nextPhase = currentPhase + 1;
-                setCurrentPhase(nextPhase);
-
-                const phaseStartMsg = "次のフェーズへ進みました。\n" +
-                    (nextPhase === 2 ? "Phase 2 (Not List): やらないことリストについて決めていきましょう。" :
-                     nextPhase === 3 ? "Phase 3 (What): 技術スタックとアーキテクチャの制約について教えてください。" :
-                     nextPhase === 4 ? "Phase 4 (How): プロジェクト固有の開発ルールやAIへの追加ルールはありますか？" :
-                     "Phase 5: 初期足場構築（Scaffolding）を開始します。");
-
-                setMessages(prev => [...prev, { role: 'assistant', content: phaseStartMsg }]);
+                if (didWritePatch) {
+                    const nextPhase = currentPhase + 1;
+                    setCurrentPhase(nextPhase);
+                    setMessages(prev => [...prev, { role: 'assistant', content: getPhaseGuideMessage(nextPhase, 'advance') }]);
+                } else {
+                    toast.error('AI は完了を宣言しましたが、更新ファイルの内容が返ってこなかったためフェーズを進めませんでした。');
+                }
+            } else if (!response.is_finished && looksLikeDocumentCompletionClaim(response.reply)) {
+                toast.error('応答文では更新完了とされていますが、実際のファイル更新データを受け取れていません。もう一度送信してください。');
             }
         } catch (error) {
             console.error('Chat failed:', error);
@@ -229,7 +325,7 @@ export function InceptionDeck() {
                         />
                         <div className="p-3 border-t border-gray-200 bg-white">
                             <button
-                                onClick={() => setCurrentPhase(4)}
+                                onClick={() => navigateToPhase(4)}
                                 className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1 rounded hover:bg-gray-100"
                             >
                                 ← 前のフェーズに戻る
@@ -275,14 +371,14 @@ export function InceptionDeck() {
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && e.metaKey) handleSendMessage();
+                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSendMessage();
                                     }}
                                     disabled={isProcessing}
                                     className="w-full border border-gray-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none h-20"
-                                    placeholder="AIへの指示を入力... (Cmd+Enterで送信)"
+                                    placeholder="AIへの指示を入力... (Ctrl+Enterで送信)"
                                 />
                                 <div className="flex justify-between items-center">
-                                    <span className="text-xs text-gray-400">Cmd+Enterで送信</span>
+                                    <span className="text-xs text-gray-400">Ctrl+Enterで送信</span>
                                     <button
                                         onClick={handleSendMessage}
                                         disabled={isProcessing || !inputText.trim()}
@@ -295,13 +391,13 @@ export function InceptionDeck() {
                             <div className="mt-4 flex justify-between items-center border-t border-gray-100 pt-3">
                                 <button
                                     disabled={currentPhase === 1}
-                                    onClick={() => setCurrentPhase(p => Math.max(1, p - 1))}
+                                    onClick={() => navigateToPhase(Math.max(1, currentPhase - 1))}
                                     className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1 rounded hover:bg-gray-100 disabled:opacity-50"
                                 >
                                     ← 前のフェーズ
                                 </button>
                                 <button
-                                    onClick={() => setCurrentPhase(p => Math.min(5, p + 1))}
+                                    onClick={() => navigateToPhase(Math.min(5, currentPhase + 1))}
                                     className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1 rounded hover:bg-gray-100"
                                 >
                                     次のフェーズへスキップ →

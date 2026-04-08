@@ -168,7 +168,7 @@ pub struct TeamConfigurationInput {
     pub roles: Vec<TeamRoleInput>,
 }
 
-const DB_STRING: &str = "sqlite:ai-scrum.db";
+const DB_STRING: &str = "sqlite:vicara.db";
 
 pub async fn execute_query(
     app: &AppHandle,
@@ -272,7 +272,7 @@ pub async fn get_worktree_by_task_id(
     Ok(worktrees.pop())
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn get_worktree_record(
     app: AppHandle,
     task_id: String,

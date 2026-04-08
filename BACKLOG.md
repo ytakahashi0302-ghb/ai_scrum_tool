@@ -1,4 +1,4 @@
-# MicroScrum AI - Technical Debt & Backlog (BACKLOG.md)
+# Vicara - Technical Debt & Backlog (BACKLOG.md)
 
 > **【運用ルール】**
 > このファイルは、将来解消すべき課題（技術的負債）や未実装のタスクを記録する場所である。

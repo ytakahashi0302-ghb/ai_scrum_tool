@@ -14,8 +14,8 @@ export function useDatabase() {
                 return;
             }
             try {
-                console.log('Attempting to load db sqlite:ai-scrum.db');
-                const instance = await Database.load('sqlite:ai-scrum.db');
+                console.log('Attempting to load db sqlite:vicara.db');
+                const instance = await Database.load('sqlite:vicara.db');
                 console.log('Database successfully loaded', instance);
                 dbInstance = instance;
                 setDb(instance);

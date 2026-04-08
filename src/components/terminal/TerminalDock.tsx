@@ -13,6 +13,7 @@ import {
     Loader2,
     SquareTerminal,
     StopCircle,
+    X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -50,7 +51,7 @@ interface ClaudeExitPayload {
     new_status?: string;
 }
 
-const WELCOME_MESSAGE = '\x1b[38;5;12m[MicroScrum AI]\x1b[0m Dev Agent Terminal Ready.\r\n';
+const WELCOME_MESSAGE = '\x1b[38;5;12m[Vicara]\x1b[0m Dev Agent Terminal Ready.\r\n';
 
 function buildSessionHeader(session: Pick<TerminalTabSession, 'roleName' | 'taskTitle' | 'model'>): string {
     return `\x1b[38;5;12m[${session.roleName}]\x1b[0m ${session.taskTitle}\r\n\x1b[38;5;8mModel: ${session.model || 'unknown'}\x1b[0m\r\n\r\n`;
@@ -100,6 +101,24 @@ function isSessionRunning(status: TerminalSessionStatus): boolean {
     return status === 'Starting' || status === 'Running';
 }
 
+function getNextActiveTaskId(
+    sessions: Record<string, TerminalTabSession>,
+    removedTaskId: string,
+    currentActiveTaskId: string | null,
+) {
+    if (currentActiveTaskId !== removedTaskId) {
+        return currentActiveTaskId;
+    }
+
+    const remainingSessions = Object.values(sessions)
+        .filter((session) => session.taskId !== removedTaskId)
+        .sort((a, b) => a.startedAt - b.startedAt);
+
+    return remainingSessions.length > 0
+        ? remainingSessions[remainingSessions.length - 1].taskId
+        : null;
+}
+
 function StatusIndicator({ status }: { status: TerminalSessionStatus }) {
     if (status === 'Starting' || status === 'Running') {
         return <Loader2 size={14} className="shrink-0 animate-spin text-sky-400" />;
@@ -136,6 +155,10 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
 
     const activeSession = activeTaskId ? sessions[activeTaskId] ?? null : null;
     const canKillActiveSession = activeSession ? isSessionRunning(activeSession.status) : false;
+    const completedSessionCount = useMemo(
+        () => sortedSessions.filter((session) => !isSessionRunning(session.status)).length,
+        [sortedSessions],
+    );
 
     useEffect(() => {
         activeTaskIdRef.current = activeTaskId;
@@ -276,7 +299,7 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
                                 ...createSessionFromActiveSession(restored),
                                 logs:
                                     createSessionFromActiveSession(restored).logs +
-                                    '\x1b[38;5;12m[MicroScrum AI]\x1b[0m 進行中セッションを復元しました。\r\n',
+                                    '\x1b[38;5;12m[Vicara]\x1b[0m 進行中セッションを復元しました。\r\n',
                             };
                     }
                     return next;
@@ -444,9 +467,36 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
         }
     };
 
+    const handleDismissSession = (taskId: string) => {
+        setSessions((prev) => {
+            const nextActiveTaskId = getNextActiveTaskId(prev, taskId, activeTaskIdRef.current);
+            const next = { ...prev };
+            delete next[taskId];
+            setActiveTaskId(nextActiveTaskId);
+            return next;
+        });
+    };
+
+    const handleClearCompletedSessions = () => {
+        setSessions((prev) => {
+            const remainingEntries = Object.entries(prev).filter(([, session]) =>
+                isSessionRunning(session.status),
+            );
+            const next = Object.fromEntries(remainingEntries);
+            const nextActiveTaskId =
+                activeTaskIdRef.current && next[activeTaskIdRef.current]
+                    ? activeTaskIdRef.current
+                    : remainingEntries.length > 0
+                      ? remainingEntries[remainingEntries.length - 1][0]
+                      : null;
+            setActiveTaskId(nextActiveTaskId);
+            return next;
+        });
+    };
+
     return (
         <div className="relative flex h-full min-h-0 w-full flex-col">
-            <div className="flex h-[33px] items-stretch border-b border-zinc-950 bg-[#18181b]">
+            <div className="flex h-10 items-stretch border-b border-zinc-950 bg-[#18181b]">
                 <div className="min-w-0 flex-1 overflow-hidden">
                     {sortedSessions.length === 0 ? (
                         <div className="flex h-full items-center px-2 text-xs text-zinc-500">
@@ -456,20 +506,24 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
                             </span>
                         </div>
                     ) : (
-                        <div className="flex h-full items-end gap-px overflow-x-auto px-1">
+                        <div
+                            className="flex h-full items-end gap-px overflow-x-auto overflow-y-hidden px-1 pb-1"
+                            style={{ scrollbarGutter: 'stable both-edges' }}
+                        >
                             {sortedSessions.map((session) => {
                                 const isActive = session.taskId === activeTaskId;
                                 const showInlineKill = isActive && canKillActiveSession;
+                                const showDismiss = !isSessionRunning(session.status);
                                 return (
                                     <div key={session.taskId} className="group relative min-w-[180px] max-w-[300px] shrink-0">
                                         <button
                                             type="button"
                                             onClick={() => handleSelectTab(session.taskId)}
-                                            className={`flex h-[32px] w-full items-center gap-2 rounded-t-sm border border-b-0 px-2 py-1 text-left text-xs transition-colors ${
+                                            className={`flex h-8 w-full items-center gap-2 rounded-t-sm border border-b-0 px-2 py-1 text-left text-xs transition-colors ${
                                                 isActive
                                                     ? 'border-zinc-700 bg-[#1e1e1e] text-zinc-100'
                                                     : 'border-transparent bg-[#23232a] text-zinc-400 hover:bg-[#2a2a33] hover:text-zinc-200'
-                                            } ${showInlineKill ? 'pr-7' : ''}`}
+                                            } ${showInlineKill || showDismiss ? 'pr-7' : ''}`}
                                             title={`${session.roleName} / ${session.taskTitle}`}
                                         >
                                             <StatusIndicator status={session.status} />
@@ -483,12 +537,26 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
                                                 type="button"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleKill();
+                                                    void handleKill();
                                                 }}
                                                 className="absolute right-1 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-sm text-red-400 opacity-50 transition-all hover:bg-red-500/10 hover:text-red-300 hover:opacity-100 focus:opacity-100 focus:outline-none group-hover:opacity-100"
                                                 title="現在表示中の Claude プロセスを強制停止します"
                                             >
                                                 <StopCircle size={12} />
+                                            </button>
+                                        )}
+
+                                        {showDismiss && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDismissSession(session.taskId);
+                                                }}
+                                                className="absolute right-1 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-sm text-zinc-400 opacity-50 transition-all hover:bg-white/10 hover:text-zinc-100 hover:opacity-100 focus:opacity-100 focus:outline-none group-hover:opacity-100"
+                                                title="このセッション履歴を閉じる"
+                                            >
+                                                <X size={12} />
                                             </button>
                                         )}
                                     </div>
@@ -497,6 +565,18 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
                         </div>
                     )}
                 </div>
+
+                {completedSessionCount > 0 && (
+                    <button
+                        type="button"
+                        onClick={handleClearCompletedSessions}
+                        className="inline-flex h-full shrink-0 items-center gap-1 border-l border-zinc-800 px-3 text-xs text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-100"
+                        title="完了・失敗・停止済みのセッション履歴をまとめて閉じます"
+                    >
+                        <X size={13} />
+                        <span className="hidden sm:inline">完了分を閉じる</span>
+                    </button>
+                )}
 
                 <button
                     type="button"

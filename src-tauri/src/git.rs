@@ -82,8 +82,8 @@ fn main_branch_exists(project_path: &Path) -> Result<bool, String> {
 
 fn ensure_local_git_identity(project_path: &Path) -> Result<(), String> {
     let defaults = [
-        ("user.name", "MicroScrum AI"),
-        ("user.email", "microscrum@example.local"),
+        ("user.name", "Vicara"),
+        ("user.email", "vicara@example.local"),
     ];
 
     for (key, value) in defaults {
@@ -195,7 +195,7 @@ pub async fn check_git_installed() -> Result<GitInstallationStatus, String> {
             installed: false,
             version: None,
             message: Some(format!(
-                "MicroScrum AI の利用には Git のインストールが必要です。詳細: {}",
+                "Vicara の利用には Git のインストールが必要です。詳細: {}",
                 error
             )),
         }),
@@ -214,7 +214,7 @@ pub fn auto_commit_if_needed(wt_path: &Path) -> Result<bool, String> {
         &[
             "commit",
             "-m",
-            "[MicroScrum AI] 自動コミット: エージェント作業完了",
+            "[Vicara] 自動コミット: エージェント作業完了",
         ],
     )?;
 
