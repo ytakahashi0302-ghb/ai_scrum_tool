@@ -1,6 +1,6 @@
 [package]
 name = "vicara"
-version = "1.1.0"
+version = "1.2.0"
 description = "vicara desktop app"
 authors = ["you"]
 edition = "2021"
@@ -37,4 +37,3 @@ env_logger = "0.11"
 
 [dev-dependencies]
 tempfile = "3"
-
