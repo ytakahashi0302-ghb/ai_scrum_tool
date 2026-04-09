@@ -157,6 +157,17 @@ function resolvePreviewPreset(
     return null;
 }
 
+function resolveCliDisplayName(cliType: string | null | undefined): string {
+    switch (cliType?.trim().toLowerCase()) {
+        case 'gemini':
+            return 'Gemini CLI';
+        case 'codex':
+            return 'Codex CLI';
+        default:
+            return 'Claude Code CLI';
+    }
+}
+
 export const TaskCard = memo(function TaskCard({ task, availableTasks = [], roleLookup }: TaskCardProps) {
     const {
         updateTaskStatus,
@@ -195,6 +206,8 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
     );
     const assignedRole = assignedRoleId ? roleLookup[assignedRoleId] : undefined;
     const assignedRoleName = assignedRole?.name?.trim() || '';
+    const assignedCliDisplayName = resolveCliDisplayName(assignedRole?.cli_type);
+    const assignedRoleModel = assignedRole?.model?.trim() || '';
     const assignedAvatar = assignedRoleName ? resolveAvatarForRoleName(assignedRoleName) : null;
     const assignedAvatarImage = assignedRole?.avatar_image ?? null;
     const projectPath = currentProject?.local_path ?? null;
@@ -308,7 +321,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                 return;
             }
             if (!assignedRoleId) {
-                toast.error('Claude 実行前に担当ロールを設定してください。');
+                toast.error('Dev エージェント実行前に担当ロールを設定してください。');
                 return;
             }
 
@@ -321,16 +334,39 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                     await ensureTimerRunning('AI_TASK_LAUNCHED', task.sprint_id ?? null);
                 } catch (timerError) {
                     console.error('Failed to auto-start sprint timer after Claude launch', timerError);
-                    toast.error('Claude は起動しましたが、タイマーの自動開始に失敗しました。必要に応じて手動で開始してください。');
+                    toast.error(`${assignedCliDisplayName} は起動しましたが、タイマーの自動開始に失敗しました。必要に応じて手動で開始してください。`);
                 }
                 await updateTaskStatus(task.id, 'In Progress');
-                toast.success('Claudeでの開発を開始しました (ターミナルをご確認ください)');
+                toast.success(`${assignedCliDisplayName} での開発を開始しました (ターミナルをご確認ください)`);
             } catch (err) {
-                toast.error(`プロセス起動失敗: ${err}`);
-                window.dispatchEvent(new CustomEvent('claude_error', { detail: String(err) }));
+                const errorMessage = String(err);
+                toast.error(`${assignedCliDisplayName} の起動に失敗しました: ${errorMessage}`);
+                window.dispatchEvent(
+                    new CustomEvent('claude_error', {
+                        detail: {
+                            taskId: task.id,
+                            taskTitle: task.title,
+                            roleName: assignedRoleName || 'Unknown Role',
+                            model: assignedRoleModel,
+                            message: errorMessage,
+                        },
+                    }),
+                );
             }
         },
-        [assignedRoleId, ensureTimerRunning, isLaunchDisabled, projectPath, task.id, task.sprint_id, updateTaskStatus],
+        [
+            assignedCliDisplayName,
+            assignedRoleId,
+            assignedRoleModel,
+            assignedRoleName,
+            ensureTimerRunning,
+            isLaunchDisabled,
+            projectPath,
+            task.id,
+            task.sprint_id,
+            task.title,
+            updateTaskStatus,
+        ],
     );
 
     const handleStartPreview = useCallback(async () => {

@@ -172,6 +172,72 @@ pub struct TeamConfigurationInput {
     pub roles: Vec<TeamRoleInput>,
 }
 
+#[derive(Clone, Copy)]
+struct DefaultTeamRoleSeed {
+    id: &'static str,
+    name: &'static str,
+    system_prompt: &'static str,
+    cli_type: &'static str,
+    model: &'static str,
+    avatar_image: &'static str,
+    sort_order: i32,
+}
+
+const DEFAULT_TEAM_ROLE_SEEDS: [DefaultTeamRoleSeed; 5] = [
+    DefaultTeamRoleSeed {
+        id: "seed-lead-engineer",
+        name: "Lead Engineer",
+        system_prompt: "あなたはVicaraのLead Engineerです。プロジェクト全体の技術方針を踏まえ、実装方針の整理、設計判断、レビュー観点の提示、各ロールの成果統合を担当してください。重要なトレードオフを明確にし、チーム全体の品質と速度の両立を導いてください。",
+        cli_type: "claude",
+        model: "sonnet",
+        avatar_image: "/avatars/dev-agent-1.png",
+        sort_order: 0,
+    },
+    DefaultTeamRoleSeed {
+        id: "seed-security-system-architect",
+        name: "Security & System Architect",
+        system_prompt: "あなたはSecurity & System Architectです。複雑なシステム設計、コアビジネスロジックの構築、脅威分析、厳密なセキュリティレビューを担当してください。境界条件、認可、データフロー、将来の拡張性まで踏み込み、深い論理で設計上の妥当性を確認してください。",
+        cli_type: "claude",
+        model: "opus",
+        avatar_image: "/avatars/dev-agent-2.png",
+        sort_order: 1,
+    },
+    DefaultTeamRoleSeed {
+        id: "seed-ui-ux-multimedia-specialist",
+        name: "UI/UX Designer & Multimedia Specialist",
+        system_prompt: "あなたはUI/UX Designer & Multimedia Specialistです。Webフロントエンドの実装、UIプロトタイプ生成、視覚表現の改善、プロモーション素材作成、マルチメディア体験の検討、ユーザー向け導線の最適化を担当してください。使いやすさと印象の強さを両立させてください。",
+        cli_type: "gemini",
+        model: "gemini-3-pro-preview",
+        avatar_image: "/avatars/dev-agent-3.png",
+        sort_order: 2,
+    },
+    DefaultTeamRoleSeed {
+        id: "seed-qa-engineer",
+        name: "QA Engineer",
+        system_prompt: "あなたはQA Engineerです。テスト計画の策定、エッジケースの洗い出し、回帰リスクの特定、E2Eを含むテスト実装と実行確認を担当してください。失敗時は再現条件と観測結果を明確に整理し、品質向上に必要な具体策まで提示してください。",
+        cli_type: "claude",
+        model: "sonnet",
+        avatar_image: "/avatars/dev-agent-4.png",
+        sort_order: 3,
+    },
+    DefaultTeamRoleSeed {
+        id: "seed-pmo-document-manager",
+        name: "PMO & Document Manager",
+        system_prompt: "あなたはPMO & Document Managerです。プロジェクト推進、仕様整合性の確認、論点整理、進捗管理、議事録や設計メモやタスクリストなどのドキュメント品質維持を担当してください。意思決定に必要な情報を簡潔かつ漏れなく整理してください。",
+        cli_type: "gemini",
+        model: "gemini-3-flash-preview",
+        avatar_image: "/avatars/dev-agent-5.png",
+        sort_order: 4,
+    },
+];
+
+fn default_team_role_avatar_for_sort_order(sort_order: i32) -> Option<&'static str> {
+    DEFAULT_TEAM_ROLE_SEEDS
+        .iter()
+        .find(|seed| seed.sort_order == sort_order)
+        .map(|seed| seed.avatar_image)
+}
+
 const DB_STRING: &str = "sqlite:vicara.db";
 
 pub async fn execute_query(
@@ -399,6 +465,126 @@ pub async fn get_max_concurrent_agents_value(app: &AppHandle) -> Result<i32, Str
     Ok(settings.pop().map(|s| s.max_concurrent_agents).unwrap_or(1))
 }
 
+async fn insert_default_team_role(app: &AppHandle, seed: DefaultTeamRoleSeed) -> Result<(), String> {
+    let query = r#"
+        INSERT OR IGNORE INTO team_roles (
+            id,
+            team_settings_id,
+            name,
+            system_prompt,
+            cli_type,
+            model,
+            avatar_image,
+            sort_order,
+            updated_at
+        ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    "#;
+    let values = vec![
+        serde_json::to_value(seed.id).unwrap(),
+        serde_json::to_value(seed.name).unwrap(),
+        serde_json::to_value(seed.system_prompt).unwrap(),
+        serde_json::to_value(seed.cli_type).unwrap(),
+        serde_json::to_value(seed.model).unwrap(),
+        serde_json::to_value(seed.avatar_image).unwrap(),
+        serde_json::to_value(seed.sort_order).unwrap(),
+    ];
+
+    execute_query(app, query, values).await?;
+    Ok(())
+}
+
+async fn ensure_default_team_role_avatars(app: &AppHandle) -> Result<(), String> {
+    let roles = select_query::<TeamRole>(
+        app,
+        r#"
+        SELECT id, name, system_prompt, cli_type, model, avatar_image, sort_order
+        FROM team_roles
+        WHERE team_settings_id = 1
+        ORDER BY sort_order ASC, created_at ASC
+        "#,
+        vec![],
+    )
+    .await?;
+
+    for role in roles {
+        let needs_avatar = role
+            .avatar_image
+            .as_deref()
+            .map(str::trim)
+            .map(|value| value.is_empty())
+            .unwrap_or(true);
+
+        if !needs_avatar {
+            continue;
+        }
+
+        let Some(default_avatar) = default_team_role_avatar_for_sort_order(role.sort_order) else {
+            continue;
+        };
+
+        execute_query(
+            app,
+            r#"
+            UPDATE team_roles
+            SET avatar_image = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND (avatar_image IS NULL OR TRIM(avatar_image) = '')
+            "#,
+            vec![
+                serde_json::to_value(default_avatar).unwrap(),
+                serde_json::to_value(role.id).unwrap(),
+            ],
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn ensure_default_team_templates(app: &AppHandle) -> Result<(), String> {
+    execute_query(
+        app,
+        r#"
+        INSERT OR IGNORE INTO team_settings (id, max_concurrent_agents, updated_at)
+        VALUES (1, 1, CURRENT_TIMESTAMP)
+        "#,
+        vec![],
+    )
+    .await?;
+
+    let roles_query = r#"
+        SELECT id, name, system_prompt, cli_type, model, avatar_image, sort_order
+        FROM team_roles
+        WHERE team_settings_id = 1
+        ORDER BY sort_order ASC, created_at ASC
+    "#;
+    let roles = select_query::<TeamRole>(app, roles_query, vec![]).await?;
+
+    if roles.is_empty() {
+        for seed in DEFAULT_TEAM_ROLE_SEEDS {
+            insert_default_team_role(app, seed).await?;
+        }
+        return Ok(());
+    }
+
+    if roles.len() == 1 {
+        let existing_role = &roles[0];
+        execute_query(
+            app,
+            "UPDATE team_roles SET sort_order = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            vec![serde_json::to_value(existing_role.id.clone()).unwrap()],
+        )
+        .await?;
+
+        for seed in DEFAULT_TEAM_ROLE_SEEDS.iter().skip(1).copied() {
+            insert_default_team_role(app, seed).await?;
+        }
+    }
+
+    ensure_default_team_role_avatars(app).await?;
+
+    Ok(())
+}
+
 pub async fn get_project_by_local_path(
     app: &AppHandle,
     local_path: &str,
@@ -432,7 +618,9 @@ pub async fn create_project(
         serde_json::to_value(name).unwrap(),
         serde_json::to_value(description).unwrap(),
     ];
-    execute_query(&app, query, values).await
+    let result = execute_query(&app, query, values).await?;
+    ensure_default_team_templates(&app).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -770,6 +958,8 @@ fn validate_team_configuration(config: &TeamConfigurationInput) -> Result<(), St
 
 #[tauri::command]
 pub async fn get_team_configuration(app: AppHandle) -> Result<TeamConfiguration, String> {
+    ensure_default_team_templates(&app).await?;
+
     let settings_query = "SELECT max_concurrent_agents FROM team_settings WHERE id = 1";
     let settings = select_query::<TeamSettings>(&app, settings_query, vec![]).await?;
 
@@ -836,6 +1026,13 @@ pub async fn save_team_configuration(
         } else {
             role.cli_type.trim()
         };
+        let avatar_image = role
+            .avatar_image
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| default_team_role_avatar_for_sort_order(index as i32).map(str::to_string));
         sqlx::query(
             r#"
             INSERT INTO team_roles (
@@ -856,7 +1053,7 @@ pub async fn save_team_configuration(
         .bind(role.system_prompt.trim())
         .bind(cli_type)
         .bind(role.model.trim())
-        .bind(role.avatar_image.clone())
+        .bind(avatar_image)
         .bind(index as i32)
         .execute(&mut *tx)
         .await

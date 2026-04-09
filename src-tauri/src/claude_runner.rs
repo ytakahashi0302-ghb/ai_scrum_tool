@@ -30,6 +30,7 @@ pub struct ActiveAgentSession {
     task_id: String,
     task_title: String,
     role_name: String,
+    cli_type: String,
     model: String,
     started_at: i64,
     status: String,
@@ -144,6 +145,18 @@ fn cleanup_temp_file(path: &Path) {
             );
         }
     }
+
+    if let Some(parent) = path.parent() {
+        let is_vicara_temp_dir = parent
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name == ".vicara-agent")
+            .unwrap_or(false);
+
+        if is_vicara_temp_dir {
+            let _ = fs::remove_dir(parent);
+        }
+    }
 }
 
 fn sanitize_for_filename(value: &str) -> String {
@@ -187,15 +200,23 @@ fn build_task_prompt(
     )
 }
 
-fn create_prompt_file(task_id: &str, prompt: &str) -> Result<PathBuf, String> {
+fn create_prompt_file(task_id: &str, prompt: &str, cwd: &Path) -> Result<PathBuf, String> {
     let timestamp = current_timestamp_millis()?;
+    let prompt_dir = cwd.join(".vicara-agent");
 
     let file_name = format!(
         "vicara-agent-{}-{}.md",
         sanitize_for_filename(task_id),
         timestamp
     );
-    let path = std::env::temp_dir().join(file_name);
+    fs::create_dir_all(&prompt_dir).map_err(|e| {
+        format!(
+            "CLI 実行用の一時ディレクトリ作成に失敗しました ({}): {}",
+            prompt_dir.display(),
+            e
+        )
+    })?;
+    let path = prompt_dir.join(file_name);
 
     fs::write(&path, prompt).map_err(|e| {
         format!(
@@ -271,6 +292,7 @@ fn build_generic_session_info(
         task_id: task_id.to_string(),
         task_title: task_id.to_string(),
         role_name: "Scaffold AI".to_string(),
+        cli_type: runner.cli_type().as_str().to_string(),
         model: runner.default_model().to_string(),
         started_at: current_timestamp_millis()?,
         status: "Starting".to_string(),
@@ -286,6 +308,7 @@ fn build_task_session_info(
         task_id: task.id.clone(),
         task_title: task.title.clone(),
         role_name: role.name.clone(),
+        cli_type: runner.cli_type().as_str().to_string(),
         model: runner.resolve_model(&role.model),
         started_at: current_timestamp_millis()?,
         status: "Starting".to_string(),
@@ -301,19 +324,9 @@ fn build_cli_not_found_message(runner: &dyn CliRunner) -> String {
     )
 }
 
-async fn ensure_cli_is_available(runner: &dyn CliRunner) -> Result<(), String> {
-    let installed_clis = cli_detection::detect_installed_clis().await?;
-    let is_installed = installed_clis
-        .into_iter()
-        .find(|cli| cli.name == runner.command_name())
-        .map(|cli| cli.installed)
-        .unwrap_or(false);
-
-    if is_installed {
-        Ok(())
-    } else {
-        Err(build_cli_not_found_message(runner))
-    }
+fn resolve_cli_command_path(runner: &dyn CliRunner) -> Result<PathBuf, String> {
+    cli_detection::resolve_cli_command_path(runner.command_name())
+        .ok_or_else(|| build_cli_not_found_message(runner))
 }
 
 fn promote_session_to_running(
@@ -423,6 +436,7 @@ async fn record_claude_cli_usage_event(
             task_id: usage_context.db_task_id.clone(),
             sprint_id: usage_context.sprint_id.clone(),
             source_kind: usage_context.source_kind.clone(),
+            cli_type: session_info.cli_type.clone(),
             model: session_info.model.clone(),
             request_started_at: session_info.started_at,
             request_completed_at: completed_at,
@@ -443,6 +457,7 @@ async fn record_claude_cli_usage_event(
 async fn execute_prompt_request(
     app_handle: AppHandle,
     runner: &dyn CliRunner,
+    cli_command_path: PathBuf,
     sessions_arc: Arc<Mutex<HashMap<String, AgentSessionEntry>>>,
     session_info: ActiveAgentSession,
     prompt: String,
@@ -466,7 +481,7 @@ async fn execute_prompt_request(
         return Err(err_msg);
     }
 
-    let prompt_file_path = match create_prompt_file(&session_info.task_id, &prompt) {
+    let prompt_file_path = match create_prompt_file(&session_info.task_id, &prompt, cwd_path) {
         Ok(path) => path,
         Err(error) => {
             remove_session_entry(&sessions_arc, &session_info.task_id);
@@ -477,6 +492,7 @@ async fn execute_prompt_request(
     if let Err(error) = spawn_agent_process(
         &app_handle,
         runner,
+        &cli_command_path,
         sessions_arc.clone(),
         session_info.clone(),
         prompt_file_path.clone(),
@@ -545,13 +561,14 @@ pub async fn execute_claude_prompt_task(
         db_task_id: None,
     };
     let runner = cli_runner::create_runner(&CliType::Claude)?;
-    ensure_cli_is_available(runner.as_ref()).await?;
+    let cli_command_path = resolve_cli_command_path(runner.as_ref())?;
     let session_info = build_generic_session_info(&task_id, runner.as_ref())?;
     let sessions_arc = reserve_session_slot(&state, session_info.clone(), max_concurrent_agents)?;
 
     execute_prompt_request(
         app_handle,
         runner.as_ref(),
+        cli_command_path,
         sessions_arc,
         session_info,
         prompt,
@@ -573,6 +590,7 @@ pub async fn execute_claude_prompt_task(
 fn spawn_agent_process(
     app_handle: &AppHandle,
     runner: &dyn CliRunner,
+    cli_command_path: &Path,
     sessions_arc: Arc<Mutex<HashMap<String, AgentSessionEntry>>>,
     session_info: ActiveAgentSession,
     prompt_file_path: PathBuf,
@@ -583,7 +601,7 @@ fn spawn_agent_process(
 
     let cli_prompt = build_cli_prompt_from_file(&prompt_file_path);
     let args = runner.build_args(&cli_prompt, &session_info.model, &cwd);
-    let mut command = Command::new(runner.command_name());
+    let mut command = Command::new(cli_command_path);
     command
         .args(&args)
         .current_dir(&cwd)
@@ -714,6 +732,7 @@ fn spawn_agent_process(
 fn spawn_agent_process(
     app_handle: &AppHandle,
     runner: &dyn CliRunner,
+    cli_command_path: &Path,
     sessions_arc: Arc<Mutex<HashMap<String, AgentSessionEntry>>>,
     session_info: ActiveAgentSession,
     prompt_file_path: PathBuf,
@@ -732,7 +751,7 @@ fn spawn_agent_process(
 
     let cli_prompt = build_cli_prompt_from_file(&prompt_file_path);
     let args = runner.build_args(&cli_prompt, &session_info.model, &cwd);
-    let mut cmd = CommandBuilder::new(runner.command_name());
+    let mut cmd = CommandBuilder::new(cli_command_path.to_string_lossy().to_string());
     cmd.args(args.iter().map(String::as_str));
     cmd.cwd(&cwd);
     for (key, val) in std::env::vars() {
@@ -867,7 +886,7 @@ pub async fn execute_claude_task(
         .ok_or_else(|| format!("担当ロールが見つかりません: {}", role_id))?;
     let cli_type = CliType::from_str(&role.cli_type);
     let runner = cli_runner::create_runner(&cli_type)?;
-    ensure_cli_is_available(runner.as_ref()).await?;
+    let cli_command_path = resolve_cli_command_path(runner.as_ref())?;
 
     if role.system_prompt.trim().is_empty() {
         return Err("担当ロールのシステムプロンプトが未設定です。".to_string());
@@ -959,6 +978,7 @@ pub async fn execute_claude_task(
     let result = execute_prompt_request(
         app_handle.clone(),
         runner.as_ref(),
+        cli_command_path,
         sessions_arc,
         session_info,
         prompt,

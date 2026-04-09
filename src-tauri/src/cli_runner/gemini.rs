@@ -29,8 +29,8 @@ impl CliRunner for GeminiRunner {
             prompt.to_string(),
             "--model".to_string(),
             model.to_string(),
-            "--sandbox".to_string(),
-            "permissive".to_string(),
+            "--approval-mode".to_string(),
+            "yolo".to_string(),
         ]
     }
 
@@ -57,8 +57,8 @@ mod tests {
                 "prompt",
                 "--model",
                 "gemini-2.5-flash",
-                "--sandbox",
-                "permissive",
+                "--approval-mode",
+                "yolo",
             ]
             .into_iter()
             .map(str::to_string)

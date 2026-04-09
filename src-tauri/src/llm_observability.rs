@@ -8,6 +8,8 @@ const MEASUREMENT_CAPTURED: &str = "captured";
 const MEASUREMENT_ESTIMATED: &str = "estimated";
 const MEASUREMENT_UNAVAILABLE: &str = "unavailable";
 const TRANSPORT_CLAUDE_CLI: &str = "claude_cli";
+const TRANSPORT_GEMINI_CLI: &str = "gemini_cli";
+const TRANSPORT_CODEX_CLI: &str = "codex_cli";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct NormalizedUsage {
@@ -84,6 +86,7 @@ pub struct ClaudeCliUsageRecordInput {
     pub task_id: Option<String>,
     pub sprint_id: Option<String>,
     pub source_kind: String,
+    pub cli_type: String,
     pub model: String,
     pub request_started_at: i64,
     pub request_completed_at: i64,
@@ -310,10 +313,27 @@ fn determine_measurement_status(
 
     if usage.has_usage() {
         MEASUREMENT_CAPTURED.to_string()
-    } else if transport_kind == TRANSPORT_CLAUDE_CLI {
+    } else if transport_kind.ends_with("_cli") {
         MEASUREMENT_UNAVAILABLE.to_string()
     } else {
         MEASUREMENT_ESTIMATED.to_string()
+    }
+}
+
+fn normalize_cli_transport_kind(cli_type: &str, model: &str) -> &'static str {
+    let normalized_cli_type = cli_type.trim().to_ascii_lowercase();
+    let normalized_model = model.trim().to_ascii_lowercase();
+
+    if normalized_cli_type == "gemini" || normalized_model.contains("gemini") {
+        TRANSPORT_GEMINI_CLI
+    } else if normalized_cli_type == "codex"
+        || normalized_model == "o3"
+        || normalized_model.starts_with("o4")
+        || normalized_model.starts_with("gpt-")
+    {
+        TRANSPORT_CODEX_CLI
+    } else {
+        TRANSPORT_CLAUDE_CLI
     }
 }
 
@@ -442,6 +462,8 @@ pub async fn record_claude_cli_usage(
         return Ok(());
     };
 
+    let transport_kind = normalize_cli_transport_kind(&input.cli_type, &input.model).to_string();
+
     record_llm_usage(
         app,
         RecordLlmUsageInput {
@@ -449,8 +471,8 @@ pub async fn record_claude_cli_usage(
             task_id: input.task_id,
             sprint_id: input.sprint_id,
             source_kind: input.source_kind,
-            transport_kind: TRANSPORT_CLAUDE_CLI.to_string(),
-            provider: "claude_cli".to_string(),
+            transport_kind: transport_kind.clone(),
+            provider: transport_kind,
             model: input.model,
             usage: NormalizedUsage::unavailable(),
             measurement_status: Some(MEASUREMENT_UNAVAILABLE.to_string()),

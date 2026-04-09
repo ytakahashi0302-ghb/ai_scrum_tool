@@ -55,6 +55,14 @@ interface ClaudeExitPayload {
     new_status?: string;
 }
 
+interface FrontendAgentErrorDetail {
+    taskId?: string;
+    taskTitle?: string;
+    roleName?: string;
+    model?: string;
+    message: string;
+}
+
 const WELCOME_MESSAGE = '\x1b[38;5;12m[vicara]\x1b[0m Dev Agent Terminal Ready.\r\n';
 
 function buildSessionHeader(session: Pick<TerminalTabSession, 'roleName' | 'taskTitle' | 'model'>): string {
@@ -87,6 +95,57 @@ function createPlaceholderSession(taskId: string): TerminalTabSession {
         startedAt: Date.now(),
         status: 'Running',
         logs: '',
+    };
+}
+
+function createSessionFromFrontendError(detail: FrontendAgentErrorDetail): TerminalTabSession {
+    const baseSession: TerminalTabSession = {
+        taskId: detail.taskId ?? `frontend-error-${Date.now()}`,
+        taskTitle: detail.taskTitle?.trim() || detail.taskId || 'Frontend Error',
+        roleName: detail.roleName?.trim() || 'Unknown Role',
+        model: detail.model?.trim() || '',
+        startedAt: Date.now(),
+        status: 'Failed',
+        logs: '',
+        exitReason: detail.message,
+    };
+
+    return {
+        ...baseSession,
+        logs: buildSessionHeader(baseSession),
+    };
+}
+
+function normalizeFrontendErrorDetail(
+    detail: unknown,
+    fallbackTaskId: string | null,
+): FrontendAgentErrorDetail {
+    if (typeof detail === 'string') {
+        return {
+            taskId: fallbackTaskId ?? undefined,
+            message: detail,
+        };
+    }
+
+    if (typeof detail === 'object' && detail !== null) {
+        const raw = detail as Record<string, unknown>;
+        return {
+            taskId: typeof raw.taskId === 'string' ? raw.taskId : fallbackTaskId ?? undefined,
+            taskTitle: typeof raw.taskTitle === 'string' ? raw.taskTitle : undefined,
+            roleName: typeof raw.roleName === 'string' ? raw.roleName : undefined,
+            model: typeof raw.model === 'string' ? raw.model : undefined,
+            message:
+                typeof raw.message === 'string'
+                    ? raw.message
+                    : typeof raw.detail === 'string'
+                      ? raw.detail
+                      : String(detail),
+        };
+    }
+
+    return {
+        taskId: fallbackTaskId ?? undefined,
+        message: String(detail),
     };
 }
 
@@ -465,24 +524,36 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
 
         const handleFrontendError = (e: Event) => {
             const ce = e as CustomEvent;
-            const message = `\r\n\x1b[31m[Invoke Error] ${String(ce.detail)}\x1b[0m\r\n`;
-            const currentActiveTaskId = activeTaskIdRef.current;
+            const errorDetail = normalizeFrontendErrorDetail(ce.detail, activeTaskIdRef.current);
+            const message = `\r\n\x1b[31m[Invoke Error] ${errorDetail.message}\x1b[0m\r\n`;
+            const targetTaskId = errorDetail.taskId;
 
-            if (currentActiveTaskId) {
+            if (targetTaskId) {
                 setSessions((prev) => {
-                    const existing = prev[currentActiveTaskId];
-                    if (!existing) return prev;
+                    const existing = prev[targetTaskId] ?? createSessionFromFrontendError(errorDetail);
+                    const withHeader = existing.logs ? existing.logs : buildSessionHeader(existing);
                     return {
                         ...prev,
-                        [currentActiveTaskId]: {
+                        [targetTaskId]: {
                             ...existing,
-                            logs: existing.logs + message,
+                            taskTitle: errorDetail.taskTitle?.trim() || existing.taskTitle,
+                            roleName: errorDetail.roleName?.trim() || existing.roleName,
+                            model: errorDetail.model?.trim() || existing.model,
+                            status: 'Failed',
+                            exitReason: errorDetail.message,
+                            logs: withHeader + message,
                         },
                     };
                 });
+                setActiveTaskId(targetTaskId);
             }
 
-            if (xtermRef.current && (!currentActiveTaskId || sessionsRef.current[currentActiveTaskId])) {
+            if (xtermRef.current && targetTaskId && activeTaskIdRef.current === targetTaskId) {
+                xtermRef.current.write(message);
+                return;
+            }
+
+            if (xtermRef.current && !targetTaskId) {
                 xtermRef.current.write(message);
             }
         };

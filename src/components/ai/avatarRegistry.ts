@@ -20,7 +20,7 @@ const AVATAR_DEFINITIONS: Record<AgentAvatarKind, AvatarDefinition> = {
     'po-assistant': {
         kind: 'po-assistant',
         label: PO_ASSISTANT_ROLE_NAME,
-        src: '/avatars/po-assistant.png',
+        src: '/avatars/po-assistant-1.png',
         backgroundClassName: 'bg-gradient-to-br from-emerald-100 via-lime-50 to-amber-100',
         iconClassName: 'text-emerald-700',
         ringClassName: 'ring-emerald-200/80',
@@ -30,7 +30,7 @@ const AVATAR_DEFINITIONS: Record<AgentAvatarKind, AvatarDefinition> = {
     'dev-agent': {
         kind: 'dev-agent',
         label: DEV_AGENT_LABEL,
-        src: '/avatars/dev-agent.png',
+        src: '/avatars/dev-agent-1.png',
         backgroundClassName: 'bg-gradient-to-br from-sky-100 via-cyan-50 to-blue-100',
         iconClassName: 'text-sky-700',
         ringClassName: 'ring-sky-200/80',

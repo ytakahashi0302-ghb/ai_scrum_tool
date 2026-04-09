@@ -197,6 +197,7 @@ pub fn run() {
             db::save_team_configuration,
             ai::chat_with_team_leader,
             rig_provider::get_available_models,
+            rig_provider::check_api_key_status,
             pty_commands::pty_spawn,
             pty_commands::pty_execute,
             pty_commands::pty_kill,

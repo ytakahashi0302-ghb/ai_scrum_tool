@@ -6,6 +6,7 @@ use rig::providers::anthropic;
 use rig::providers::anthropic::completion::CompletionModel as AnthropicModel;
 use rig::providers::gemini;
 use rig::providers::gemini::completion::CompletionModel as GeminiModel;
+use serde::Serialize;
 use serde_json::json;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
@@ -23,6 +24,29 @@ impl AiProvider {
             _ => AiProvider::Anthropic,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiKeyStatus {
+    pub name: String,
+    pub display_name: String,
+    pub configured: bool,
+}
+
+fn extract_store_string_value(value: serde_json::Value) -> Option<String> {
+    if let Some(obj) = value.as_object() {
+        obj.get("value")
+            .and_then(|inner| inner.as_str())
+            .map(|inner| inner.to_string())
+    } else {
+        value.as_str().map(|inner| inner.to_string())
+    }
+}
+
+fn has_configured_store_value(value: Option<serde_json::Value>) -> bool {
+    value.and_then(extract_store_string_value)
+        .map(|inner| !inner.trim().is_empty())
+        .unwrap_or(false)
 }
 
 /// Resolve the AI provider and API key from the Tauri store.
@@ -445,5 +469,44 @@ pub async fn get_available_models(
         }
 
         Ok(models)
+    }
+}
+
+#[tauri::command]
+pub async fn check_api_key_status(app: tauri::AppHandle) -> Result<Vec<ApiKeyStatus>, String> {
+    let store = app
+        .store("settings.json")
+        .map_err(|e| format!("Failed to access store: {}", e))?;
+
+    Ok(vec![
+        ApiKeyStatus {
+            name: "anthropic".to_string(),
+            display_name: "Anthropic".to_string(),
+            configured: has_configured_store_value(store.get("anthropic-api-key")),
+        },
+        ApiKeyStatus {
+            name: "gemini".to_string(),
+            display_name: "Gemini".to_string(),
+            configured: has_configured_store_value(store.get("gemini-api-key")),
+        },
+    ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_store_string_value, has_configured_store_value};
+    use serde_json::json;
+
+    #[test]
+    fn extract_store_string_value_reads_wrapped_value() {
+        let result = extract_store_string_value(json!({ "value": "secret" }));
+        assert_eq!(result.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn has_configured_store_value_rejects_blank_values() {
+        assert!(!has_configured_store_value(Some(json!({ "value": "   " }))));
+        assert!(!has_configured_store_value(Some(json!(""))));
+        assert!(has_configured_store_value(Some(json!("configured"))));
     }
 }

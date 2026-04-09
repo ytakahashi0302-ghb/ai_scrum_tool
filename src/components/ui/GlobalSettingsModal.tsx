@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Modal } from './Modal';
-import { Settings, Trash2, Shield, RefreshCw, AlertTriangle, Coins } from 'lucide-react';
+import { Settings, Trash2, Shield, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Button } from './Button';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { invoke } from '@tauri-apps/api/core';
@@ -9,25 +9,53 @@ import { confirm, open } from '@tauri-apps/plugin-dialog';
 import toast from 'react-hot-toast';
 import { TeamSettingsTab } from './TeamSettingsTab';
 import { TeamConfiguration } from '../../types';
-import { useLlmUsageSummary } from '../../hooks/useLlmUsageSummary';
 import {
     normalizeStoredStringValue,
     PO_ASSISTANT_AVATAR_IMAGE_STORE_KEY,
     VICARA_SETTINGS_UPDATED_EVENT,
 } from '../../hooks/usePoAssistantAvatarImage';
 import { AvatarImageField } from './AvatarImageField';
+import { CliDetectionResult, useCliDetection } from '../../hooks/useCliDetection';
+import { ApiKeyStatus, SetupStatusTab } from './SetupStatusTab';
+import { AnalyticsTab } from './AnalyticsTab';
 
 interface GlobalSettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
+type SettingsTab = 'setup' | 'general' | 'analytics' | 'ai' | 'team';
+type SupportedCliType = 'claude' | 'gemini' | 'codex';
+type InstalledCliMap = Record<SupportedCliType, boolean>;
+
 const DEFAULT_TEAM_CONFIGURATION: TeamConfiguration = {
     max_concurrent_agents: 1,
     roles: [],
 };
 
-function validateTeamConfiguration(config: TeamConfiguration): string[] {
+const EMPTY_INSTALLED_CLI_MAP: InstalledCliMap = {
+    claude: false,
+    gemini: false,
+    codex: false,
+};
+
+function buildInstalledCliMap(cliResults: CliDetectionResult[]): InstalledCliMap {
+    const nextMap = { ...EMPTY_INSTALLED_CLI_MAP };
+
+    cliResults.forEach((result) => {
+        if (result.name === 'claude' || result.name === 'gemini' || result.name === 'codex') {
+            nextMap[result.name] = result.installed;
+        }
+    });
+
+    return nextMap;
+}
+
+function validateTeamConfiguration(
+    config: TeamConfiguration,
+    installedCliMap: InstalledCliMap,
+    isCliDetectionLoading: boolean,
+): string[] {
     const messages: string[] = [];
 
     if (!Number.isInteger(config.max_concurrent_agents) || config.max_concurrent_agents < 1 || config.max_concurrent_agents > 5) {
@@ -42,49 +70,45 @@ function validateTeamConfiguration(config: TeamConfiguration): string[] {
         if (!role.name.trim()) {
             messages.push(`Role ${index + 1} の役割名を入力してください。`);
         }
+        const cliType = (role.cli_type.trim() || 'claude') as SupportedCliType;
+        if (!role.cli_type.trim()) {
+            messages.push(`Role ${index + 1} の CLI 種別を選択してください。`);
+        }
         if (!role.model.trim()) {
-            messages.push(`Role ${index + 1} の Claude モデルを入力してください。`);
+            messages.push(`Role ${index + 1} のモデル名を入力してください。`);
         }
         if (!role.system_prompt.trim()) {
             messages.push(`Role ${index + 1} のシステムプロンプトを入力してください。`);
+        }
+        if (!isCliDetectionLoading && (cliType === 'claude' || cliType === 'gemini' || cliType === 'codex') && !installedCliMap[cliType]) {
+            const label =
+                cliType === 'claude' ? 'Claude Code CLI' : cliType === 'gemini' ? 'Gemini CLI' : 'Codex CLI';
+            messages.push(`Role ${index + 1} の ${label} は未導入です。導入するか、別の CLI を選択してください。`);
         }
     });
 
     return Array.from(new Set(messages));
 }
 
-function formatTokenCount(value: number) {
-    return new Intl.NumberFormat('ja-JP').format(value);
-}
-
-function formatEstimatedCost(value: number) {
-    return `~$${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : value >= 1 ? 2 : 3)}`;
-}
-
-function formatSourceLabel(sourceKind: string) {
-    const labels: Record<string, string> = {
-        idea_refine: 'Idea',
-        task_generation: 'Task Gen',
-        inception: 'Inception',
-        team_leader: 'POアシスタント',
-        task_execution: 'Task Exec',
-        scaffold_ai: 'Scaffold',
-    };
-
-    return labels[sourceKind] ?? sourceKind;
+function shouldOpenSetupTab(cliResults: { installed: boolean }[], apiKeyStatuses: ApiKeyStatus[]) {
+    const hasAnyCli = cliResults.some((result) => result.installed);
+    const hasAnyApiKey = apiKeyStatuses.some((status) => status.configured);
+    return !hasAnyCli || !hasAnyApiKey;
 }
 
 export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProps) {
-    const { currentProjectId, deleteProject, projects, updateProjectPath } = useWorkspace();
-    const currentProject = projects.find(p => p.id === currentProjectId);
+    const { currentProjectId, deleteProject, projects, updateProjectPath, gitStatus, refreshGitStatus } = useWorkspace();
     const {
-        summary: usageSummary,
-        loading: usageLoading,
-        error: usageError,
-    } = useLlmUsageSummary(currentProjectId);
+        results: cliResults,
+        loading: isCliDetectionLoading,
+        error: cliDetectionError,
+        refresh: refreshCliDetection,
+    } = useCliDetection();
+    const currentProject = projects.find(p => p.id === currentProjectId);
+    const installedCliMap = buildInstalledCliMap(cliResults);
     
     // Tabs state
-    const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'team'>('ai');
+    const [activeTab, setActiveTab] = useState<SettingsTab>('ai');
     
     // AI Settings State
     const [provider, setProvider] = useState<'anthropic' | 'gemini'>('anthropic');
@@ -102,6 +126,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
     const [anthropicModelsList, setAnthropicModelsList] = useState<string[]>([]);
     const [geminiModelsList, setGeminiModelsList] = useState<string[]>([]);
     const [isFetchingModels, setIsFetchingModels] = useState(false);
+    const [fetchingModelsProvider, setFetchingModelsProvider] = useState<'anthropic' | 'gemini' | null>(null);
     
     // Path selection state
     const [isSelectingPath, setIsSelectingPath] = useState(false);
@@ -110,13 +135,82 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
     const [teamConfig, setTeamConfig] = useState<TeamConfiguration>(DEFAULT_TEAM_CONFIGURATION);
     const [isLoadingTeamConfig, setIsLoadingTeamConfig] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [apiKeyStatuses, setApiKeyStatuses] = useState<ApiKeyStatus[]>([]);
+    const [isLoadingApiKeyStatus, setIsLoadingApiKeyStatus] = useState(false);
+    const [apiKeyStatusError, setApiKeyStatusError] = useState<string | null>(null);
+    const [hasLoadedApiKeyStatus, setHasLoadedApiKeyStatus] = useState(false);
+    const [hasInitializedTabForOpen, setHasInitializedTabForOpen] = useState(false);
+    const [isRefreshingSetupStatus, setIsRefreshingSetupStatus] = useState(false);
+
+    const loadApiKeyStatus = useCallback(async () => {
+        setIsLoadingApiKeyStatus(true);
+        try {
+            const statuses = await invoke<ApiKeyStatus[]>('check_api_key_status');
+            setApiKeyStatuses(statuses);
+            setApiKeyStatusError(null);
+            return statuses;
+        } catch (error) {
+            const message = String(error);
+            console.error('Failed to load API key status', error);
+            setApiKeyStatuses([]);
+            setApiKeyStatusError(message);
+            return [];
+        } finally {
+            setIsLoadingApiKeyStatus(false);
+            setHasLoadedApiKeyStatus(true);
+        }
+    }, []);
+
+    const refreshSetupStatus = useCallback(async (showSpinner = true) => {
+        if (showSpinner) {
+            setIsRefreshingSetupStatus(true);
+        } else {
+            setHasLoadedApiKeyStatus(false);
+        }
+
+        try {
+            await Promise.all([
+                refreshGitStatus(),
+                refreshCliDetection(),
+                loadApiKeyStatus(),
+            ]);
+        } finally {
+            if (showSpinner) {
+                setIsRefreshingSetupStatus(false);
+            }
+        }
+    }, [loadApiKeyStatus, refreshCliDetection, refreshGitStatus]);
+
+    const handleRefreshSetupStatus = useCallback(async () => {
+        try {
+            await refreshSetupStatus();
+            toast.success('セットアップ状況を更新しました');
+        } catch (error) {
+            console.error('Failed to refresh setup status', error);
+            toast.error(`セットアップ状況の更新に失敗しました: ${error}`);
+        }
+    }, [refreshSetupStatus]);
 
     // Initial load
     useEffect(() => {
         if (isOpen) {
-            loadSettings();
+            void loadSettings();
+            void refreshSetupStatus(false);
+        } else {
+            setHasInitializedTabForOpen(false);
+            setHasLoadedApiKeyStatus(false);
+            setApiKeyStatusError(null);
         }
-    }, [isOpen]);
+    }, [isOpen, refreshSetupStatus]);
+
+    useEffect(() => {
+        if (!isOpen || hasInitializedTabForOpen || isCliDetectionLoading || !hasLoadedApiKeyStatus) {
+            return;
+        }
+
+        setActiveTab(shouldOpenSetupTab(cliResults, apiKeyStatuses) ? 'setup' : 'ai');
+        setHasInitializedTabForOpen(true);
+    }, [apiKeyStatuses, cliResults, hasInitializedTabForOpen, hasLoadedApiKeyStatus, isCliDetectionLoading, isOpen]);
 
     const loadSettings = async () => {
         setIsLoadingTeamConfig(true);
@@ -165,6 +259,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
 
     const fetchModels = async (targetProvider: 'anthropic' | 'gemini') => {
         setIsFetchingModels(true);
+        setFetchingModelsProvider(targetProvider);
         try {
             const models = await invoke<string[]>('get_available_models', { provider: targetProvider });
             if (targetProvider === 'anthropic') {
@@ -184,10 +279,11 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
             toast.error(`モデルの取得に失敗しました。APIキーを確認してください。\nError: ${e}`);
         } finally {
             setIsFetchingModels(false);
+            setFetchingModelsProvider(null);
         }
     };
 
-    const teamValidationMessages = validateTeamConfiguration(teamConfig);
+    const teamValidationMessages = validateTeamConfiguration(teamConfig, installedCliMap, isCliDetectionLoading);
     const isSaveDisabled = isSaving || isLoadingTeamConfig || teamValidationMessages.length > 0;
 
     const handleSave = async () => {
@@ -276,6 +372,16 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
         >
             <div className="flex border-b border-gray-200 mb-4">
                 <button
+                    onClick={() => setActiveTab('setup')}
+                    className={`pb-2 px-4 text-sm font-medium transition-colors ${
+                        activeTab === 'setup'
+                            ? 'border-b-2 border-blue-500 text-blue-600'
+                            : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                    セットアップ状況
+                </button>
+                <button
                     onClick={() => setActiveTab('ai')}
                     className={`pb-2 px-4 text-sm font-medium transition-colors ${
                         activeTab === 'ai' 
@@ -286,28 +392,52 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                     POアシスタント設定
                 </button>
                 <button
-                    onClick={() => setActiveTab('general')}
-                    className={`pb-2 px-4 text-sm font-medium transition-colors ${
-                        activeTab === 'general' 
-                            ? 'border-b-2 border-blue-500 text-blue-600' 
-                            : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                >
-                    プロジェクト設定
-                </button>
-                <button
                     onClick={() => setActiveTab('team')}
                     className={`pb-2 px-4 text-sm font-medium transition-colors ${
                         activeTab === 'team'
-                            ? 'border-b-2 border-blue-500 text-blue-600'
+                            ? 'border-b-2 border-blue-500 text-blue-600' 
                             : 'text-gray-500 hover:text-gray-700'
                     }`}
                 >
                     チーム設定
                 </button>
+                <button
+                    onClick={() => setActiveTab('analytics')}
+                    className={`pb-2 px-4 text-sm font-medium transition-colors ${
+                        activeTab === 'analytics'
+                            ? 'border-b-2 border-blue-500 text-blue-600'
+                            : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                    アナリティクス
+                </button>
+                <button
+                    onClick={() => setActiveTab('general')}
+                    className={`pb-2 px-4 text-sm font-medium transition-colors ${
+                        activeTab === 'general'
+                            ? 'border-b-2 border-blue-500 text-blue-600'
+                            : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                    プロジェクト設定
+                </button>
             </div>
 
             <div className="min-h-[350px] max-h-[60vh] overflow-y-auto px-1 custom-scrollbar">
+                {activeTab === 'setup' && (
+                    <SetupStatusTab
+                        gitStatus={gitStatus}
+                        cliResults={cliResults}
+                        cliLoading={isCliDetectionLoading}
+                        cliError={cliDetectionError}
+                        apiKeyStatuses={apiKeyStatuses}
+                        apiLoading={isLoadingApiKeyStatus}
+                        apiError={apiKeyStatusError}
+                        isRefreshing={isRefreshingSetupStatus}
+                        onRefresh={handleRefreshSetupStatus}
+                    />
+                )}
+
                 {activeTab === 'ai' && (
                     <div className="space-y-6">
                         <AvatarImageField
@@ -466,150 +596,16 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                     </div>
                 )}
 
+                {activeTab === 'analytics' && (
+                    <AnalyticsTab projectId={currentProjectId} />
+                )}
+
                 {activeTab === 'general' && (
                     <div className="space-y-6">
-                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
-                            <div className="mb-4 flex items-start justify-between gap-3">
-                                <div>
-                                    <h3 className="flex items-center gap-2 font-medium text-gray-900">
-                                        <Coins size={16} className="text-emerald-700" />
-                                        LLM Observability
-                                    </h3>
-                                    <p className="mt-1 text-sm text-gray-600">
-                                        プロジェクト全体とアクティブスプリント内での LLM 使用量を確認できます。
-                                    </p>
-                                </div>
-                                <div className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
-                                    {usageLoading ? '更新中...' : '概算コスト'}
-                                </div>
-                            </div>
-
-                            {usageError ? (
-                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                                    usage の取得に失敗しました: {usageError}
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    <div className="grid gap-3 md:grid-cols-3">
-                                        <div className="rounded-lg border border-white/70 bg-white px-4 py-3 shadow-sm">
-                                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                                Project Total
-                                            </div>
-                                            <div className="mt-1 text-lg font-semibold text-slate-900">
-                                                {usageSummary
-                                                    ? formatEstimatedCost(usageSummary.project_totals.estimated_cost_usd)
-                                                    : '~$0.000'}
-                                            </div>
-                                            <div className="mt-1 text-sm text-slate-600">
-                                                {usageSummary
-                                                    ? `${formatTokenCount(usageSummary.project_totals.total_tokens)} token`
-                                                    : '0 token'}
-                                            </div>
-                                        </div>
-                                        <div className="rounded-lg border border-white/70 bg-white px-4 py-3 shadow-sm">
-                                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                                Active Sprint
-                                            </div>
-                                            <div className="mt-1 text-lg font-semibold text-slate-900">
-                                                {usageSummary
-                                                    ? formatEstimatedCost(usageSummary.active_sprint_totals.estimated_cost_usd)
-                                                    : '~$0.000'}
-                                            </div>
-                                            <div className="mt-1 text-sm text-slate-600">
-                                                {usageSummary
-                                                    ? `${formatTokenCount(usageSummary.active_sprint_totals.total_tokens)} token`
-                                                    : '0 token'}
-                                            </div>
-                                        </div>
-                                        <div className="rounded-lg border border-white/70 bg-white px-4 py-3 shadow-sm">
-                                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                                Today
-                                            </div>
-                                            <div className="mt-1 text-lg font-semibold text-slate-900">
-                                                {usageSummary
-                                                    ? formatEstimatedCost(usageSummary.today_totals.estimated_cost_usd)
-                                                    : '~$0.000'}
-                                            </div>
-                                            <div className="mt-1 text-sm text-slate-600">
-                                                {usageSummary
-                                                    ? `${formatTokenCount(usageSummary.today_totals.total_tokens)} token`
-                                                    : '0 token'}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {usageSummary && usageSummary.project_totals.unavailable_event_count > 0 && (
-                                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                            Claude CLI など一部実行は厳密 token 未計測です。現在は
-                                            <code className="mx-1 rounded bg-amber-100 px-1 py-0.5 text-xs">measurement_status='unavailable'</code>
-                                            として保存しています。
-                                        </div>
-                                    )}
-
-                                    <div className="grid gap-4 lg:grid-cols-2">
-                                        <div className="rounded-lg border border-white/70 bg-white p-4 shadow-sm">
-                                            <div className="mb-3 text-sm font-semibold text-slate-900">Source別内訳</div>
-                                            <div className="space-y-2">
-                                                {usageSummary?.by_source.length ? usageSummary.by_source.map((item) => (
-                                                    <div key={item.source_kind} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
-                                                        <div className="min-w-0">
-                                                            <div className="truncate text-sm font-medium text-slate-800">
-                                                                {formatSourceLabel(item.source_kind)}
-                                                            </div>
-                                                            <div className="text-xs text-slate-500">
-                                                                {formatTokenCount(item.total_tokens)} token / {item.event_count} event
-                                                            </div>
-                                                        </div>
-                                                        <div className="shrink-0 text-sm font-semibold text-slate-900">
-                                                            {formatEstimatedCost(item.estimated_cost_usd)}
-                                                        </div>
-                                                    </div>
-                                                )) : (
-                                                    <div className="rounded-md bg-slate-50 px-3 py-3 text-sm text-slate-500">
-                                                        まだ usage データはありません。
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="rounded-lg border border-white/70 bg-white p-4 shadow-sm">
-                                            <div className="mb-3 text-sm font-semibold text-slate-900">Model別内訳</div>
-                                            <div className="space-y-2">
-                                                {usageSummary?.by_model.length ? usageSummary.by_model.map((item) => (
-                                                    <div key={`${item.provider}:${item.model}`} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
-                                                        <div className="min-w-0">
-                                                            <div className="truncate text-sm font-medium text-slate-800">
-                                                                {item.model}
-                                                            </div>
-                                                            <div className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                                                                {item.provider}
-                                                            </div>
-                                                        </div>
-                                                        <div className="shrink-0 text-right">
-                                                            <div className="text-sm font-semibold text-slate-900">
-                                                                {formatEstimatedCost(item.estimated_cost_usd)}
-                                                            </div>
-                                                            <div className="text-xs text-slate-500">
-                                                                {formatTokenCount(item.total_tokens)} token
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )) : (
-                                                    <div className="rounded-md bg-slate-50 px-3 py-3 text-sm text-slate-500">
-                                                        まだ model 別内訳はありません。
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
                         <div className="p-4 rounded-lg border border-gray-200 bg-white">
                             <h3 className="font-medium text-gray-900 mb-2">対象ディレクトリパス (Local Path)</h3>
                             <p className="text-sm text-gray-500 mb-4">
-                                ClaudeCLIが自動開発を行う際の作業ディレクトリを指定してください。（ローカル環境の絶対パス）
+                                Dev エージェントが自動開発を行う際の作業ディレクトリを指定してください。（ローカル環境の絶対パス）
                             </p>
                             <div className="flex items-center gap-3">
                                 <input 
@@ -656,10 +652,16 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                         validationMessages={teamValidationMessages}
                         isLoading={isLoadingTeamConfig}
                         anthropicModelsList={anthropicModelsList}
-                        isFetchingModels={isFetchingModels}
-                        canFetchModels={Boolean(anthropicKey.trim())}
+                        geminiModelsList={geminiModelsList}
+                        installedCliMap={installedCliMap}
+                        isCliDetectionLoading={isCliDetectionLoading}
+                        isFetchingAnthropicModels={isFetchingModels && fetchingModelsProvider === 'anthropic'}
+                        isFetchingGeminiModels={isFetchingModels && fetchingModelsProvider === 'gemini'}
+                        canFetchAnthropicModels={Boolean(anthropicKey.trim())}
+                        canFetchGeminiModels={Boolean(geminiKey.trim())}
                         onChange={setTeamConfig}
-                        onFetchModels={() => fetchModels('anthropic')}
+                        onFetchAnthropicModels={() => fetchModels('anthropic')}
+                        onFetchGeminiModels={() => fetchModels('gemini')}
                     />
                 )}
             </div>
