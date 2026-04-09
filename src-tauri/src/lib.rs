@@ -1,6 +1,7 @@
 mod ai;
 mod ai_tools;
 mod claude_runner;
+mod cli_detection;
 mod db;
 mod git;
 mod inception;
@@ -153,6 +154,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ai::generate_tasks_from_story,
             ai::refine_idea,
+            cli_detection::detect_installed_clis,
             git::check_git_installed,
             db::get_projects,
             db::create_project,

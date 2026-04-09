@@ -2,7 +2,6 @@ import "./App.css";
 import { useEffect, useRef, useState } from "react";
 import { Toaster } from "react-hot-toast";
 import {
-    AlertTriangle,
     Coins,
     History,
     RefreshCcw,
@@ -16,6 +15,7 @@ import { useLlmUsageSummary } from "./hooks/useLlmUsageSummary";
 import { usePoAssistantAvatarImage } from "./hooks/usePoAssistantAvatarImage";
 import { ProjectSelector } from "./components/ui/ProjectSelector";
 import { ProjectSettings } from "./components/ui/ProjectSettings";
+import { WarningBanner } from "./components/ui/WarningBanner";
 import { InceptionDeck } from "./components/project/InceptionDeck";
 import { ScrumDashboard } from "./components/kanban/ScrumDashboard";
 import { Avatar } from "./components/ai/Avatar";
@@ -363,50 +363,6 @@ function AppContent() {
               height: `calc((100% - ${SPLITTER_SIZE_PX}px) * ${terminalRatio.toFixed(4)})`,
           };
 
-    if (gitStatus.checked && !gitStatus.installed) {
-        return (
-            <div className="flex h-screen items-center justify-center bg-slate-100 px-6 py-10">
-                <div className="w-full max-w-2xl rounded-3xl border border-red-200 bg-white p-8 shadow-[0_20px_80px_-30px_rgba(15,23,42,0.35)]">
-                    <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-100 text-red-600">
-                        <AlertTriangle size={28} />
-                    </div>
-                    <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                        vicara の利用には Git のインストールが必要です
-                    </h1>
-                    <p className="mt-3 text-sm leading-6 text-slate-600">
-                        vicara は Git Worktree を前提として AI 開発環境を隔離します。
-                        この PC に Git が見つからないため、安全のため処理を中断しています。
-                    </p>
-                    {gitStatus.message && (
-                        <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                            {gitStatus.message}
-                        </div>
-                    )}
-                    <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                        Git をインストール後に「再チェック」を押してください。
-                    </div>
-                    <div className="mt-6 flex flex-wrap gap-3">
-                        <button
-                            type="button"
-                            onClick={() => void openUrl("https://git-scm.com/")}
-                            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-                        >
-                            Git 公式サイトを開く
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => void refreshGitStatus()}
-                            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-                        >
-                            <RefreshCcw size={15} className="mr-2" />
-                            再チェック
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-slate-100 font-sans">
             <AppHeader
@@ -419,6 +375,34 @@ function AppContent() {
                 onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
                 poAssistantAvatarImage={poAssistantAvatarImage}
             />
+
+            {gitStatus.checked && !gitStatus.installed && (
+                <div className="shrink-0 px-4 pt-4 sm:px-6 lg:px-8">
+                    <WarningBanner
+                        message="Git が検出されません。Dev エージェント機能を使用するには Git のインストールが必要です。"
+                        details={
+                            gitStatus.message ??
+                            "Git をインストール後に再チェックすると Dev エージェント機能を利用できます。"
+                        }
+                    >
+                        <button
+                            type="button"
+                            onClick={() => void openUrl("https://git-scm.com/downloads")}
+                            className="inline-flex items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-amber-700"
+                        >
+                            Git をダウンロード
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void refreshGitStatus()}
+                            className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 shadow-sm transition-colors hover:bg-amber-100"
+                        >
+                            <RefreshCcw size={15} className="mr-2" />
+                            再チェック
+                        </button>
+                    </WarningBanner>
+                </div>
+            )}
 
             {currentView === "inception" ? (
                 <div className="min-h-0 flex-1 overflow-hidden">

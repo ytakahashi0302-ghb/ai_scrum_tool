@@ -2,9 +2,11 @@
 
 ## ステータス
 
-- 状態: `Ready`
+- 状態: `Done`
 - 実装開始条件: PO 承認済み
+- 実装完了条件: コード実装、ビルド確認、Rust テスト確認、PO クローズ承認
 - 作成日: 2026-04-09
+- 完了日: 2026-04-09
 
 ## Epic の目的
 
@@ -95,3 +97,17 @@ export function useCliDetection() {
 - Claude CLI インストール済み環境で `detect_installed_clis` → `{ name: "claude", installed: true, version: "1.x.x" }`
 - 存在しない CLI → `{ installed: false, version: null }`
 - 全 CLI 未インストールでもコマンド自体はエラーにならないこと
+
+## 実装結果
+
+- `src/App.tsx` の Git 未インストール時フルスクリーンブロックを撤去し、通常 UI を維持したまま上部ワーニング表示に変更した。
+- `src/components/ui/WarningBanner.tsx` を追加し、Git ダウンロード導線と再チェック導線を共通化しやすい形で実装した。
+- `src-tauri/src/cli_detection.rs` を追加し、`claude` / `gemini` / `codex` の `--version` 実行による検出を `spawn_blocking` で並列化した。
+- `detect_installed_clis` を Tauri コマンドとして `src-tauri/src/lib.rs` に登録した。
+- `src/hooks/useCliDetection.ts` を追加し、初回取得、メモリキャッシュ、進行中リクエスト共有、手動再検出を提供した。
+
+## 検証結果
+
+- `cargo test --manifest-path src-tauri/Cargo.toml` : 成功
+- `npm run build` : 成功
+- 手動確認: PO 判断によりスキップ
