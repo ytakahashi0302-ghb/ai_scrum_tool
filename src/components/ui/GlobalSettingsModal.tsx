@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Modal } from './Modal';
-import { Settings, Trash2, Shield, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Settings, Trash2, Shield, RefreshCw, AlertTriangle, Bot, CheckCircle2, ImageIcon, XCircle } from 'lucide-react';
 import { Button } from './Button';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { invoke } from '@tauri-apps/api/core';
@@ -25,6 +25,7 @@ interface GlobalSettingsModalProps {
 }
 
 type SettingsTab = 'setup' | 'general' | 'analytics' | 'ai' | 'team';
+type AiProvider = 'anthropic' | 'gemini';
 type SupportedCliType = 'claude' | 'gemini' | 'codex';
 type InstalledCliMap = Record<SupportedCliType, boolean>;
 
@@ -53,8 +54,6 @@ function buildInstalledCliMap(cliResults: CliDetectionResult[]): InstalledCliMap
 
 function validateTeamConfiguration(
     config: TeamConfiguration,
-    installedCliMap: InstalledCliMap,
-    isCliDetectionLoading: boolean,
 ): string[] {
     const messages: string[] = [];
 
@@ -70,7 +69,6 @@ function validateTeamConfiguration(
         if (!role.name.trim()) {
             messages.push(`Role ${index + 1} の役割名を入力してください。`);
         }
-        const cliType = (role.cli_type.trim() || 'claude') as SupportedCliType;
         if (!role.cli_type.trim()) {
             messages.push(`Role ${index + 1} の CLI 種別を選択してください。`);
         }
@@ -80,11 +78,36 @@ function validateTeamConfiguration(
         if (!role.system_prompt.trim()) {
             messages.push(`Role ${index + 1} のシステムプロンプトを入力してください。`);
         }
-        if (!isCliDetectionLoading && (cliType === 'claude' || cliType === 'gemini' || cliType === 'codex') && !installedCliMap[cliType]) {
-            const label =
-                cliType === 'claude' ? 'Claude Code CLI' : cliType === 'gemini' ? 'Gemini CLI' : 'Codex CLI';
-            messages.push(`Role ${index + 1} の ${label} は未導入です。導入するか、別の CLI を選択してください。`);
+    });
+
+    return Array.from(new Set(messages));
+}
+
+function collectTeamConfigurationWarnings(
+    config: TeamConfiguration,
+    installedCliMap: InstalledCliMap,
+    isCliDetectionLoading: boolean,
+): string[] {
+    if (isCliDetectionLoading) {
+        return [];
+    }
+
+    const messages: string[] = [];
+
+    config.roles.forEach((role, index) => {
+        const cliType = (role.cli_type.trim() || 'claude') as SupportedCliType;
+        if (cliType !== 'claude' && cliType !== 'gemini' && cliType !== 'codex') {
+            return;
         }
+
+        if (installedCliMap[cliType]) {
+            return;
+        }
+
+        const label =
+            cliType === 'claude' ? 'Claude Code CLI' : cliType === 'gemini' ? 'Gemini CLI' : 'Codex CLI';
+        const roleLabel = role.name.trim() || `Role ${index + 1}`;
+        messages.push(`${roleLabel} は ${label} を使用しますが、この環境ではまだ検出されていません。`);
     });
 
     return Array.from(new Set(messages));
@@ -94,6 +117,25 @@ function shouldOpenSetupTab(cliResults: { installed: boolean }[], apiKeyStatuses
     const hasAnyCli = cliResults.some((result) => result.installed);
     const hasAnyApiKey = apiKeyStatuses.some((status) => status.configured);
     return !hasAnyCli || !hasAnyApiKey;
+}
+
+function getAiProviderLabel(provider: AiProvider) {
+    return provider === 'anthropic' ? 'Anthropic (Claude)' : 'Google Gemini';
+}
+
+function ConfigurationBadge({ configured }: { configured: boolean }) {
+    return (
+        <span
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${
+                configured
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : 'border-amber-200 bg-amber-50 text-amber-700'
+            }`}
+        >
+            {configured ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+            {configured ? '設定済み' : '未設定'}
+        </span>
+    );
 }
 
 export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProps) {
@@ -111,7 +153,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
     const [activeTab, setActiveTab] = useState<SettingsTab>('ai');
     
     // AI Settings State
-    const [provider, setProvider] = useState<'anthropic' | 'gemini'>('anthropic');
+    const [provider, setProvider] = useState<AiProvider>('anthropic');
     const [anthropicKey, setAnthropicKey] = useState('');
     const [geminiKey, setGeminiKey] = useState('');
     const [anthropicModel, setAnthropicModel] = useState('');
@@ -126,7 +168,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
     const [anthropicModelsList, setAnthropicModelsList] = useState<string[]>([]);
     const [geminiModelsList, setGeminiModelsList] = useState<string[]>([]);
     const [isFetchingModels, setIsFetchingModels] = useState(false);
-    const [fetchingModelsProvider, setFetchingModelsProvider] = useState<'anthropic' | 'gemini' | null>(null);
+    const [fetchingModelsProvider, setFetchingModelsProvider] = useState<AiProvider | null>(null);
     
     // Path selection state
     const [isSelectingPath, setIsSelectingPath] = useState(false);
@@ -283,8 +325,13 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
         }
     };
 
-    const teamValidationMessages = validateTeamConfiguration(teamConfig, installedCliMap, isCliDetectionLoading);
+    const teamValidationMessages = validateTeamConfiguration(teamConfig);
+    const teamWarningMessages = collectTeamConfigurationWarnings(teamConfig, installedCliMap, isCliDetectionLoading);
     const isSaveDisabled = isSaving || isLoadingTeamConfig || teamValidationMessages.length > 0;
+    const anthropicConfigured = Boolean(anthropicKey.trim());
+    const geminiConfigured = Boolean(geminiKey.trim());
+    const configuredAiProviderCount = Number(anthropicConfigured) + Number(geminiConfigured);
+    const defaultAiProviderLabel = getAiProviderLabel(provider);
 
     const handleSave = async () => {
         if (teamValidationMessages.length > 0) {
@@ -439,157 +486,347 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                 )}
 
                 {activeTab === 'ai' && (
-                    <div className="space-y-6">
-                        <AvatarImageField
-                            label="POアシスタント画像"
-                            description="ヘッダー、チャット、サイドバー右下の立ち絵表示に使用する画像です。未設定時は標準の POアシスタント画像を使用します。"
-                            value={poAssistantAvatarImage}
-                            fallbackKind="po-assistant"
-                            previewMode="figure"
-                            onChange={setPoAssistantAvatarImage}
-                        />
+                    <div className="space-y-5">
+                        <div className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-5 shadow-sm">
+                            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                                <div className="min-w-0 flex-1">
+                                    <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3 py-1 text-xs font-semibold text-sky-700 shadow-sm">
+                                        <Bot size={14} />
+                                        PO Assistant Studio
+                                    </div>
 
-                        {/* Provider Selection */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                POアシスタントで使用するデフォルト AI プロバイダー
-                            </label>
-                            <div className="grid grid-cols-2 gap-3">
-                                <label className={`border rounded-lg p-3 cursor-pointer flex items-center transition-all ${
-                                    provider === 'anthropic' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-gray-200 hover:bg-gray-50'
-                                }`}>
-                                    <input 
-                                        type="radio" 
-                                        name="provider" 
-                                        value="anthropic" 
-                                        checked={provider === 'anthropic'} 
+                                    <div className="mt-4 flex items-start gap-3">
+                                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+                                            <Shield size={22} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <h3 className="text-lg font-semibold text-slate-900">
+                                                POアシスタントの既定動作を整える
+                                            </h3>
+                                            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                                                画像、既定プロバイダー、APIキー、モデルをまとめて管理します。ここで保存した内容は、
+                                                POアシスタントのチャット体験とサイドバー表示に反映されます。
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 flex flex-wrap gap-2">
+                                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                                            Conversational Control
+                                        </span>
+                                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                                            Provider Switching
+                                        </span>
+                                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                                            Avatar Customization
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="grid min-w-[220px] gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                                    <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
+                                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                            Default
+                                        </div>
+                                        <div className="mt-2 text-lg font-semibold text-slate-900">{defaultAiProviderLabel}</div>
+                                        <div className="mt-1 text-sm text-slate-500">既定プロバイダー</div>
+                                    </div>
+                                    <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
+                                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                            API Keys
+                                        </div>
+                                        <div className="mt-2 text-2xl font-semibold text-slate-900">{configuredAiProviderCount}/2</div>
+                                        <div className="mt-1 text-sm text-slate-500">現在の入力状態</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+                                    <ImageIcon size={18} />
+                                </div>
+                                <div>
+                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">
+                                        01 Visual Identity
+                                    </div>
+                                    <h3 className="text-sm font-semibold text-slate-900">POアシスタント画像</h3>
+                                </div>
+                            </div>
+
+                            <div className="mt-4">
+                                <AvatarImageField
+                                    label="POアシスタント画像"
+                                    description="ヘッダー、チャット、サイドバー右下の立ち絵表示に使用する画像です。未設定時は標準の POアシスタント画像を使用します。"
+                                    value={poAssistantAvatarImage}
+                                    fallbackKind="po-assistant"
+                                    previewMode="figure"
+                                    onChange={setPoAssistantAvatarImage}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="max-w-3xl">
+                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">
+                                    02 Default Provider
+                                </div>
+                                <h3 className="mt-2 text-sm font-semibold text-slate-900">既定AIプロバイダー</h3>
+                                <p className="mt-1 text-sm leading-6 text-slate-600">
+                                    POアシスタントが最初に使う既定プロバイダーを選択します。各カードには、現在の APIキー入力状態も表示します。
+                                </p>
+                            </div>
+
+                            <div className="mt-5 grid gap-3 md:grid-cols-2">
+                                <label
+                                    className={`cursor-pointer rounded-2xl border p-4 shadow-sm transition-all ${
+                                        provider === 'anthropic'
+                                            ? 'border-sky-300 bg-sky-50/80 ring-1 ring-sky-200'
+                                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="provider"
+                                        value="anthropic"
+                                        checked={provider === 'anthropic'}
                                         onChange={() => setProvider('anthropic')}
                                         className="hidden"
                                     />
-                                    <span className="font-semibold text-gray-800 ml-2">Anthropic (Claude)</span>
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-semibold text-slate-900">Anthropic (Claude)</div>
+                                            <p className="mt-2 text-sm leading-6 text-slate-600">
+                                                Claude 系モデルを既定にし、設計整理や長文レビュー寄りの対話を起点にします。
+                                            </p>
+                                        </div>
+                                        <ConfigurationBadge configured={anthropicConfigured} />
+                                    </div>
+                                    <div className="mt-4 text-xs font-medium text-sky-700">
+                                        {provider === 'anthropic' ? '現在の既定プロバイダーです。' : 'クリックすると既定プロバイダーに切り替わります。'}
+                                    </div>
                                 </label>
-                                <label className={`border rounded-lg p-3 cursor-pointer flex items-center transition-all ${
-                                    provider === 'gemini' ? 'border-purple-500 bg-purple-50 ring-1 ring-purple-500' : 'border-gray-200 hover:bg-gray-50'
-                                }`}>
-                                    <input 
-                                        type="radio" 
-                                        name="provider" 
-                                        value="gemini" 
-                                        checked={provider === 'gemini'} 
+
+                                <label
+                                    className={`cursor-pointer rounded-2xl border p-4 shadow-sm transition-all ${
+                                        provider === 'gemini'
+                                            ? 'border-violet-300 bg-violet-50/80 ring-1 ring-violet-200'
+                                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="provider"
+                                        value="gemini"
+                                        checked={provider === 'gemini'}
                                         onChange={() => setProvider('gemini')}
                                         className="hidden"
                                     />
-                                    <span className="font-semibold text-gray-800 ml-2">Google Gemini</span>
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-semibold text-slate-900">Google Gemini</div>
+                                            <p className="mt-2 text-sm leading-6 text-slate-600">
+                                                Gemini 系モデルを既定にし、素早い応答や広い文脈を活かした対話を起点にします。
+                                            </p>
+                                        </div>
+                                        <ConfigurationBadge configured={geminiConfigured} />
+                                    </div>
+                                    <div className="mt-4 text-xs font-medium text-violet-700">
+                                        {provider === 'gemini' ? '現在の既定プロバイダーです。' : 'クリックすると既定プロバイダーに切り替わります。'}
+                                    </div>
                                 </label>
                             </div>
                         </div>
 
-                        {/* Anthropic Settings */}
-                        <div className={`p-4 rounded-lg border ${provider === 'anthropic' ? 'border-blue-200 bg-blue-50/30' : 'border-gray-200 opacity-60'}`}>
-                            <h3 className="font-medium text-gray-900 flex items-center gap-2 mb-4">
-                                <Shield size={16} className="text-gray-500" />
-                                Anthropic 設定
-                            </h3>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm text-gray-600 mb-1">API Key</label>
-                                    <input
-                                        type="password"
-                                        placeholder="sk-ant-api03-..."
-                                        value={anthropicKey}
-                                        onChange={(e) => setAnthropicKey(e.target.value)}
-                                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                    />
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="max-w-3xl">
+                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">
+                                    03 Provider Settings
                                 </div>
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="block text-sm text-gray-600">Model</label>
-                                        <button 
-                                            onClick={() => fetchModels('anthropic')}
-                                            disabled={isFetchingModels || !anthropicKey}
-                                            className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 disabled:opacity-50"
-                                        >
-                                            <RefreshCw size={12} className={isFetchingModels && provider === 'anthropic' ? "animate-spin" : ""} />
-                                            モデル一覧を取得
-                                        </button>
-                                    </div>
-                                    
-                                    {!isCustomAnthropic && anthropicModelsList.length > 0 ? (
-                                        <select 
-                                            value={anthropicModel}
-                                            onChange={(e) => setAnthropicModel(e.target.value)}
-                                            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none mb-2 bg-white"
-                                        >
-                                            {anthropicModelsList.map(m => <option key={m} value={m}>{m}</option>)}
-                                        </select>
-                                    ) : (
-                                        <input
-                                            type="text"
-                                            placeholder="claude-3-5-sonnet-latest"
-                                            value={anthropicModel}
-                                            onChange={(e) => setAnthropicModel(e.target.value)}
-                                            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none mb-2"
-                                        />
-                                    )}
-                                    <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
-                                        <input type="checkbox" checked={isCustomAnthropic} onChange={(e) => setIsCustomAnthropic(e.target.checked)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                                        カスタムモデル名を手動で入力する
-                                    </label>
-                                </div>
+                                <h3 className="mt-2 text-sm font-semibold text-slate-900">プロバイダー設定</h3>
+                                <p className="mt-1 text-sm leading-6 text-slate-600">
+                                    どちらのプロバイダーも事前に設定できます。既定プロバイダーは上で選びつつ、必要に応じて切り替えられる状態を維持できます。
+                                </p>
                             </div>
-                        </div>
 
-                        {/* Gemini Settings */}
-                        <div className={`p-4 rounded-lg border ${provider === 'gemini' ? 'border-purple-200 bg-purple-50/30' : 'border-gray-200 opacity-60'}`}>
-                            <h3 className="font-medium text-gray-900 flex items-center gap-2 mb-4">
-                                <Shield size={16} className="text-gray-500" />
-                                Gemini 設定
-                            </h3>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm text-gray-600 mb-1">API Key</label>
-                                    <input
-                                        type="password"
-                                        placeholder="AIzaSy..."
-                                        value={geminiKey}
-                                        onChange={(e) => setGeminiKey(e.target.value)}
-                                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="block text-sm text-gray-600">Model</label>
-                                        <button 
-                                            onClick={() => fetchModels('gemini')}
-                                            disabled={isFetchingModels || !geminiKey}
-                                            className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 disabled:opacity-50"
-                                        >
-                                            <RefreshCw size={12} className={isFetchingModels && provider === 'gemini' ? "animate-spin" : ""} />
-                                            モデル一覧を取得
-                                        </button>
+                            <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                                <div
+                                    className={`rounded-2xl border p-5 ${
+                                        provider === 'anthropic'
+                                            ? 'border-sky-200 bg-sky-50/60 shadow-sm'
+                                            : 'border-slate-200 bg-slate-50/40'
+                                    }`}
+                                >
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-600">
+                                                Anthropic
+                                            </div>
+                                            <h4 className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                                <Shield size={16} className="text-slate-500" />
+                                                Claude 系設定
+                                            </h4>
+                                            <p className="mt-1 text-sm leading-6 text-slate-600">
+                                                APIキーとモデルを設定します。モデル一覧は API から補助的に取得できます。
+                                            </p>
+                                        </div>
+                                        <ConfigurationBadge configured={anthropicConfigured} />
                                     </div>
 
-                                    {!isCustomGemini && geminiModelsList.length > 0 ? (
-                                        <select 
-                                            value={geminiModel}
-                                            onChange={(e) => setGeminiModel(e.target.value)}
-                                            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none mb-2 bg-white"
-                                        >
-                                            {geminiModelsList.map(m => <option key={m} value={m}>{m}</option>)}
-                                        </select>
-                                    ) : (
-                                        <input
-                                            type="text"
-                                            placeholder="gemini-2.5-flash"
-                                            value={geminiModel}
-                                            onChange={(e) => setGeminiModel(e.target.value)}
-                                            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none mb-2"
-                                        />
-                                    )}
-                                    <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
-                                        <input type="checkbox" checked={isCustomGemini} onChange={(e) => setIsCustomGemini(e.target.checked)} className="rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
-                                        カスタムモデル名を手動で入力する
-                                    </label>
+                                    <div className="mt-5 space-y-4">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-700">APIキー</label>
+                                            <input
+                                                type="password"
+                                                placeholder="sk-ant-api03-..."
+                                                value={anthropicKey}
+                                                onChange={(e) => setAnthropicKey(e.target.value)}
+                                                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <div className="mb-1 flex items-center justify-between gap-3">
+                                                <label className="block text-sm font-medium text-slate-700">モデル</label>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => fetchModels('anthropic')}
+                                                    disabled={isFetchingModels || !anthropicKey}
+                                                    className="border border-sky-200 bg-white text-sky-700 hover:bg-sky-50"
+                                                >
+                                                    <RefreshCw
+                                                        size={12}
+                                                        className={`mr-2 ${
+                                                            isFetchingModels && fetchingModelsProvider === 'anthropic' ? 'animate-spin' : ''
+                                                        }`}
+                                                    />
+                                                    モデル一覧を取得
+                                                </Button>
+                                            </div>
+
+                                            {!isCustomAnthropic && anthropicModelsList.length > 0 ? (
+                                                <select
+                                                    value={anthropicModel}
+                                                    onChange={(e) => setAnthropicModel(e.target.value)}
+                                                    className="mb-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                                >
+                                                    {anthropicModelsList.map((model) => (
+                                                        <option key={model} value={model}>{model}</option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <input
+                                                    type="text"
+                                                    placeholder="claude-3-5-sonnet-latest"
+                                                    value={anthropicModel}
+                                                    onChange={(e) => setAnthropicModel(e.target.value)}
+                                                    className="mb-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                                />
+                                            )}
+
+                                            <label className="flex items-center gap-2 text-xs text-slate-500">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isCustomAnthropic}
+                                                    onChange={(e) => setIsCustomAnthropic(e.target.checked)}
+                                                    className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                                />
+                                                カスタムモデル名を手動で入力する
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div
+                                    className={`rounded-2xl border p-5 ${
+                                        provider === 'gemini'
+                                            ? 'border-violet-200 bg-violet-50/60 shadow-sm'
+                                            : 'border-slate-200 bg-slate-50/40'
+                                    }`}
+                                >
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-600">
+                                                Gemini
+                                            </div>
+                                            <h4 className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                                <Shield size={16} className="text-slate-500" />
+                                                Gemini 系設定
+                                            </h4>
+                                            <p className="mt-1 text-sm leading-6 text-slate-600">
+                                                APIキーとモデルを設定します。未選択でも保持されるので、あとで既定に切り替えられます。
+                                            </p>
+                                        </div>
+                                        <ConfigurationBadge configured={geminiConfigured} />
+                                    </div>
+
+                                    <div className="mt-5 space-y-4">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-700">APIキー</label>
+                                            <input
+                                                type="password"
+                                                placeholder="AIzaSy..."
+                                                value={geminiKey}
+                                                onChange={(e) => setGeminiKey(e.target.value)}
+                                                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <div className="mb-1 flex items-center justify-between gap-3">
+                                                <label className="block text-sm font-medium text-slate-700">モデル</label>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => fetchModels('gemini')}
+                                                    disabled={isFetchingModels || !geminiKey}
+                                                    className="border border-violet-200 bg-white text-violet-700 hover:bg-violet-50"
+                                                >
+                                                    <RefreshCw
+                                                        size={12}
+                                                        className={`mr-2 ${
+                                                            isFetchingModels && fetchingModelsProvider === 'gemini' ? 'animate-spin' : ''
+                                                        }`}
+                                                    />
+                                                    モデル一覧を取得
+                                                </Button>
+                                            </div>
+
+                                            {!isCustomGemini && geminiModelsList.length > 0 ? (
+                                                <select
+                                                    value={geminiModel}
+                                                    onChange={(e) => setGeminiModel(e.target.value)}
+                                                    className="mb-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                                                >
+                                                    {geminiModelsList.map((model) => (
+                                                        <option key={model} value={model}>{model}</option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <input
+                                                    type="text"
+                                                    placeholder="gemini-2.5-flash"
+                                                    value={geminiModel}
+                                                    onChange={(e) => setGeminiModel(e.target.value)}
+                                                    className="mb-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                                                />
+                                            )}
+
+                                            <label className="flex items-center gap-2 text-xs text-slate-500">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isCustomGemini}
+                                                    onChange={(e) => setIsCustomGemini(e.target.checked)}
+                                                    className="rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                                                />
+                                                カスタムモデル名を手動で入力する
+                                            </label>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -653,6 +890,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                         isLoading={isLoadingTeamConfig}
                         anthropicModelsList={anthropicModelsList}
                         geminiModelsList={geminiModelsList}
+                        cliResults={cliResults}
                         installedCliMap={installedCliMap}
                         isCliDetectionLoading={isCliDetectionLoading}
                         isFetchingAnthropicModels={isFetchingModels && fetchingModelsProvider === 'anthropic'}
@@ -666,20 +904,35 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                 )}
             </div>
 
-            <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button
-                    onClick={onClose}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none transition-colors"
-                >
-                    キャンセル
-                </button>
-                <button
-                    onClick={handleSave}
-                    disabled={isSaveDisabled}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none transition-colors"
-                >
-                    {isSaving ? '保存中...' : '設定を保存'}
-                </button>
+            <div className="mt-6 border-t border-gray-100 pt-4">
+                {activeTab === 'team' && teamWarningMessages.length > 0 && (
+                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                        <p className="text-sm font-medium text-amber-800">
+                            未導入の CLI を使うロールがあります。設定の保存は可能ですが、実行前にセットアップを完了してください。
+                        </p>
+                        <ul className="mt-2 list-disc pl-5 text-sm text-amber-700">
+                            {teamWarningMessages.map((message) => (
+                                <li key={message}>{message}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                <div className="flex justify-end gap-3">
+                    <button
+                        onClick={onClose}
+                        className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none transition-colors"
+                    >
+                        キャンセル
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        disabled={isSaveDisabled}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none transition-colors"
+                    >
+                        {isSaving ? '保存中...' : '設定を保存'}
+                    </button>
+                </div>
             </div>
         </Modal>
     );

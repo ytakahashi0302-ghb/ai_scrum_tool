@@ -44,6 +44,7 @@ interface StatusRow {
     label: string;
     status: string;
     tone: StatusTone;
+    detail?: string;
     actionLabel?: string;
     actionUrl?: string;
 }
@@ -95,14 +96,16 @@ function buildToolRows(gitStatus: GitStatus, cliResults: CliDetectionResult[]): 
           ? {
                 key: 'git',
                 label: 'Git',
-                status: gitStatus.version ?? 'インストール済み',
+                status: '検出済み',
                 tone: 'success',
+                detail: gitStatus.version ? `バージョン: ${gitStatus.version}` : '実行可能な Git を検出しました。',
             }
           : {
                 key: 'git',
                 label: 'Git',
                 status: '未検出',
                 tone: 'error',
+                detail: gitStatus.message ?? 'この環境では実行可能な Git を検出できませんでした。',
                 actionLabel: '導入方法',
                 actionUrl: INSTALL_LINKS.git,
             };
@@ -136,8 +139,9 @@ function buildToolRows(gitStatus: GitStatus, cliResults: CliDetectionResult[]): 
             return {
                 key: tool.key,
                 label: tool.label,
-                status: result.version ?? 'インストール済み',
+                status: '検出済み',
                 tone: 'success',
+                detail: result.version ? `バージョン: ${result.version}` : '実行可能な CLI を検出しました。',
             };
         }
 
@@ -146,6 +150,7 @@ function buildToolRows(gitStatus: GitStatus, cliResults: CliDetectionResult[]): 
             label: tool.label,
             status: '未検出',
             tone: 'error',
+            detail: 'この環境では実行可能な CLI を検出できませんでした。',
             actionLabel: '導入方法',
             actionUrl: INSTALL_LINKS[tool.key],
         };
@@ -193,18 +198,21 @@ function StatusTable({ rows }: { rows: StatusRow[] }) {
             {rows.map((row, index) => (
                 <div
                     key={row.key}
-                    className={`grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.6fr)_minmax(180px,0.9fr)_auto] md:items-center ${
+                    className={`grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1.65fr)_112px] md:items-center ${
                         index !== rows.length - 1 ? 'border-b border-slate-100' : ''
                     }`}
                 >
                     <div className="text-sm font-medium text-slate-800">{row.label}</div>
-                    <div>
+                    <div className="flex min-w-0 flex-col items-start gap-2 md:flex-row md:items-center md:gap-4">
                         <span
-                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-medium ${getStatusClasses(row.tone)}`}
+                            className={`inline-flex min-w-[106px] shrink-0 items-center justify-center gap-2 rounded-full border px-3 py-1 text-sm font-medium ${getStatusClasses(row.tone)}`}
                         >
                             {getStatusIcon(row.tone)}
                             <span>{row.status}</span>
                         </span>
+                        {row.detail && (
+                            <p className="min-w-0 text-xs leading-5 text-slate-500">{row.detail}</p>
+                        )}
                     </div>
                     <div className="flex justify-start md:justify-end">
                         {row.actionLabel && row.actionUrl ? (
@@ -219,7 +227,7 @@ function StatusTable({ rows }: { rows: StatusRow[] }) {
                                 <ExternalLink size={14} className="ml-2" />
                             </Button>
                         ) : (
-                            <span className="text-xs text-slate-400">-</span>
+                            <span className="h-9 w-[92px]" aria-hidden="true" />
                         )}
                     </div>
                 </div>

@@ -2,6 +2,7 @@ import { Bot, Cpu, Plus, RefreshCw, TerminalSquare, Trash2, Users } from 'lucide
 import { Button } from './Button';
 import { AvatarImageField } from './AvatarImageField';
 import { TeamConfiguration, TeamRoleSetting } from '../../types';
+import type { CliDetectionResult } from '../../hooks/useCliDetection';
 
 interface TeamSettingsTabProps {
     config: TeamConfiguration;
@@ -9,6 +10,7 @@ interface TeamSettingsTabProps {
     isLoading: boolean;
     anthropicModelsList: string[];
     geminiModelsList: string[];
+    cliResults: CliDetectionResult[];
     installedCliMap: Record<SupportedCliType, boolean>;
     isCliDetectionLoading: boolean;
     isFetchingAnthropicModels: boolean;
@@ -29,18 +31,18 @@ const CLI_OPTIONS: Array<{
 }> = [
     {
         value: 'claude',
-        label: 'Claude',
-        description: 'Claude Code CLI',
+        label: 'Claude Code',
+        description: 'Anthropic CLI',
     },
     {
         value: 'gemini',
-        label: 'Gemini',
-        description: 'Gemini CLI',
+        label: 'Gemini CLI',
+        description: 'Google CLI',
     },
     {
         value: 'codex',
-        label: 'Codex',
-        description: 'Codex CLI',
+        label: 'Codex CLI',
+        description: 'OpenAI CLI',
     },
 ];
 
@@ -63,6 +65,52 @@ function normalizeCliType(value: string): SupportedCliType {
 
 function getDefaultModel(cliType: SupportedCliType): string {
     return DEFAULT_MODELS[cliType];
+}
+
+function getCliDetectionResult(
+    cliType: SupportedCliType,
+    cliResults: CliDetectionResult[],
+): CliDetectionResult | undefined {
+    return cliResults.find((result) => result.name === cliType);
+}
+
+function getCliOptionMeta(
+    cliType: SupportedCliType,
+    cliResults: CliDetectionResult[],
+    isCliDetectionLoading: boolean,
+): {
+    label: string;
+    detail: string;
+    isInstalled: boolean;
+} {
+    const option = CLI_OPTIONS.find((candidate) => candidate.value === cliType);
+    const detection = getCliDetectionResult(cliType, cliResults);
+    const baseLabel = option?.label ?? cliType;
+    const baseDescription = option?.description ?? cliType;
+
+    if (isCliDetectionLoading) {
+        return {
+            label: baseLabel,
+            detail: `${baseDescription} / 検出状況を確認中`,
+            isInstalled: true,
+        };
+    }
+
+    if (!detection?.installed) {
+        return {
+            label: baseLabel,
+            detail: `${baseDescription} / 未検出`,
+            isInstalled: false,
+        };
+    }
+
+    return {
+        label: baseLabel,
+        detail: detection.version
+            ? `${baseDescription} / 検出済み: ${detection.version}`
+            : `${baseDescription} / 検出済み`,
+        isInstalled: true,
+    };
 }
 
 function getModelLabel(cliType: SupportedCliType): string {
@@ -178,6 +226,7 @@ export function TeamSettingsTab({
     isLoading,
     anthropicModelsList,
     geminiModelsList,
+    cliResults,
     installedCliMap,
     isCliDetectionLoading,
     isFetchingAnthropicModels,
@@ -466,6 +515,7 @@ export function TeamSettingsTab({
                                 const cliType = normalizeCliType(role.cli_type);
                                 const selectableModels = getSelectableModels(cliType, anthropicModelsList, geminiModelsList);
                                 const hasSelectableModels = selectableModels.length > 0;
+                                const modelSuggestionsId = `team-role-models-${role.id}`;
 
                                 return (
                                     <>
@@ -514,25 +564,24 @@ export function TeamSettingsTab({
                                     <div className="grid grid-cols-3 gap-2">
                                         {CLI_OPTIONS.map((option) => {
                                             const selected = cliType === option.value;
-                                            const isInstalled = installedCliMap[option.value];
-                                            const disabled = isCliDetectionLoading || !isInstalled;
+                                            const optionMeta = getCliOptionMeta(option.value, cliResults, isCliDetectionLoading);
+                                            const isUnavailable = !optionMeta.isInstalled;
                                             return (
                                                 <button
                                                     key={option.value}
                                                     type="button"
                                                     onClick={() => updateRoleCliType(role.id, option.value)}
-                                                    disabled={disabled}
                                                     className={`rounded-xl border px-3 py-2 text-left text-sm transition-colors ${
                                                         selected
                                                             ? 'border-sky-400 bg-sky-50 text-sky-700'
-                                                            : disabled
-                                                              ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                                                            : isUnavailable
+                                                              ? 'border-amber-200 bg-amber-50/80 text-amber-700 hover:bg-amber-50'
                                                               : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                                                     }`}
                                                 >
-                                                    <div className="font-semibold">{option.label}</div>
+                                                    <div className="font-semibold">{optionMeta.label}</div>
                                                     <div className="mt-1 text-[11px] leading-4 opacity-80">
-                                                        {disabled && !isCliDetectionLoading ? `${option.description} / 未導入` : option.description}
+                                                        {optionMeta.detail}
                                                     </div>
                                                 </button>
                                             );
@@ -540,8 +589,8 @@ export function TeamSettingsTab({
                                     </div>
                                     {!isCliDetectionLoading && !installedCliMap[cliType] && (
                                         <p className="mt-2 text-xs leading-5 text-amber-600">
-                                            現在選択中の {CLI_OPTIONS.find((option) => option.value === cliType)?.description ?? cliType} は未導入です。
-                                            セットアップ状況タブで導入するか、導入済み CLI に切り替えてください。
+                                            現在選択中の {CLI_OPTIONS.find((option) => option.value === cliType)?.label ?? cliType} はこの環境で未検出です。
+                                            保存はできますが、実行前にセットアップ状況タブで利用可能か確認してください。
                                         </p>
                                     )}
                                 </div>
@@ -552,17 +601,20 @@ export function TeamSettingsTab({
                                         {getModelLabel(cliType)}
                                     </label>
                                     {hasSelectableModels ? (
-                                        <select
+                                        <>
+                                        <input
+                                            list={modelSuggestionsId}
                                             value={role.model}
                                             onChange={(e) => updateRole(role.id, { model: e.target.value })}
+                                            placeholder={getModelPlaceholder(cliType)}
                                             className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                                        >
+                                        />
+                                        <datalist id={modelSuggestionsId}>
                                             {selectableModels.map((model) => (
-                                                <option key={model} value={model}>
-                                                    {model}
-                                                </option>
+                                                <option key={model} value={model} />
                                             ))}
-                                        </select>
+                                        </datalist>
+                                        </>
                                     ) : (
                                         <input
                                             type="text"
@@ -573,7 +625,9 @@ export function TeamSettingsTab({
                                         />
                                     )}
                                     <p className="mt-2 text-xs leading-5 text-slate-500">
-                                        {getModelHint(cliType)}
+                                        {hasSelectableModels
+                                            ? `候補から選択するか、モデル ID を直接入力できます。${getModelHint(cliType)}`
+                                            : getModelHint(cliType)}
                                     </p>
                                 </div>
                             </div>
