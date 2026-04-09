@@ -2,6 +2,7 @@ mod ai;
 mod ai_tools;
 mod claude_runner;
 mod cli_detection;
+mod cli_runner;
 mod db;
 mod git;
 mod inception;
@@ -113,6 +114,12 @@ pub fn run() {
             sql: include_str!("../migrations/16_avatar_images.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 17,
+            description: "cli_type_support",
+            sql: include_str!("../migrations/17_cli_type_support.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -125,7 +132,7 @@ pub fn run() {
                 .build(),
         )
         .manage(pty_manager::PtyManager::new())
-        .manage(claude_runner::ClaudeState::new())
+        .manage(claude_runner::AgentState::new())
         .manage(worktree::PreviewState::new())
         .manage(worktree::WorktreeState::new())
         .setup(|app| {

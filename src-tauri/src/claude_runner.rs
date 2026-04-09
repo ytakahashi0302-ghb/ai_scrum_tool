@@ -1,4 +1,7 @@
-use crate::{db, llm_observability, worktree};
+use crate::{
+    cli_runner::{self, CliRunner, CliType},
+    db, llm_observability, worktree,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read as IoRead;
@@ -14,15 +17,15 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Unix: portable-pty の PtyChild + Master/Slave を保持
 ///
 /// trait object で統一し、kill / wait のみ公開する。
-struct ClaudeSession {
-    info: ActiveClaudeSession,
+struct AgentSession {
+    info: ActiveAgentSession,
     temp_file_path: PathBuf,
     /// プロセス kill 用ハンドル
     killer: Box<dyn ProcessKiller + Send + Sync>,
 }
 
 #[derive(Clone, serde::Serialize)]
-pub struct ActiveClaudeSession {
+pub struct ActiveAgentSession {
     task_id: String,
     task_title: String,
     role_name: String,
@@ -31,9 +34,9 @@ pub struct ActiveClaudeSession {
     status: String,
 }
 
-enum ClaudeSessionEntry {
-    Starting(ActiveClaudeSession),
-    Running(ClaudeSession),
+enum AgentSessionEntry {
+    Starting(ActiveAgentSession),
+    Running(AgentSession),
 }
 
 trait ProcessKiller {
@@ -80,11 +83,11 @@ impl ProcessKiller for PtyChildKiller {
     }
 }
 
-pub struct ClaudeState {
-    sessions: Arc<Mutex<HashMap<String, ClaudeSessionEntry>>>,
+pub struct AgentState {
+    sessions: Arc<Mutex<HashMap<String, AgentSessionEntry>>>,
 }
 
-impl ClaudeState {
+impl AgentState {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -114,7 +117,7 @@ struct ClaudeExitPayload {
 }
 
 #[derive(Clone)]
-struct ClaudeUsageContext {
+struct AgentUsageContext {
     source_kind: String,
     project_id: Option<String>,
     sprint_id: Option<String>,
@@ -136,7 +139,7 @@ fn cleanup_temp_file(path: &Path) {
     if let Err(error) = fs::remove_file(path) {
         if error.kind() != std::io::ErrorKind::NotFound {
             log::warn!(
-                "failed to remove temporary Claude prompt file {}: {}",
+                "failed to remove temporary agent prompt file {}: {}",
                 path.display(),
                 error
             );
@@ -189,7 +192,7 @@ fn create_prompt_file(task_id: &str, prompt: &str) -> Result<PathBuf, String> {
     let timestamp = current_timestamp_millis()?;
 
     let file_name = format!(
-        "vicara-claude-{}-{}.md",
+        "vicara-agent-{}-{}.md",
         sanitize_for_filename(task_id),
         timestamp
     );
@@ -197,7 +200,7 @@ fn create_prompt_file(task_id: &str, prompt: &str) -> Result<PathBuf, String> {
 
     fs::write(&path, prompt).map_err(|e| {
         format!(
-            "Claude 実行用の一時ファイル作成に失敗しました ({}): {}",
+            "CLI 実行用の一時ファイル作成に失敗しました ({}): {}",
             path.display(),
             e
         )
@@ -213,17 +216,17 @@ fn build_cli_prompt_from_file(prompt_file_path: &Path) -> String {
     )
 }
 
-fn get_session_summary(entry: &ClaudeSessionEntry) -> ActiveClaudeSession {
+fn get_session_summary(entry: &AgentSessionEntry) -> ActiveAgentSession {
     match entry {
-        ClaudeSessionEntry::Starting(info) => info.clone(),
-        ClaudeSessionEntry::Running(session) => session.info.clone(),
+        AgentSessionEntry::Starting(info) => info.clone(),
+        AgentSessionEntry::Running(session) => session.info.clone(),
     }
 }
 
 fn remove_session_entry(
-    sessions_arc: &Arc<Mutex<HashMap<String, ClaudeSessionEntry>>>,
+    sessions_arc: &Arc<Mutex<HashMap<String, AgentSessionEntry>>>,
     task_id: &str,
-) -> Option<ClaudeSessionEntry> {
+) -> Option<AgentSessionEntry> {
     match sessions_arc.lock() {
         Ok(mut sessions) => sessions.remove(task_id),
         Err(_) => None,
@@ -231,16 +234,16 @@ fn remove_session_entry(
 }
 
 fn reserve_session_slot(
-    state: &tauri::State<'_, ClaudeState>,
-    session_info: ActiveClaudeSession,
+    state: &tauri::State<'_, AgentState>,
+    session_info: ActiveAgentSession,
     max_concurrent_agents: i32,
-) -> Result<Arc<Mutex<HashMap<String, ClaudeSessionEntry>>>, String> {
+) -> Result<Arc<Mutex<HashMap<String, AgentSessionEntry>>>, String> {
     let max_concurrent_agents = max_concurrent_agents.max(1) as usize;
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
 
     if sessions.contains_key(&session_info.task_id) {
         return Err(format!(
-            "task_id={} の Claude プロセスはすでに起動中です。",
+            "task_id={} の CLI プロセスはすでに起動中です。",
             session_info.task_id
         ));
     }
@@ -254,15 +257,15 @@ fn reserve_session_slot(
 
     sessions.insert(
         session_info.task_id.clone(),
-        ClaudeSessionEntry::Starting(session_info),
+        AgentSessionEntry::Starting(session_info),
     );
     drop(sessions);
 
     Ok(state.sessions.clone())
 }
 
-fn build_generic_session_info(task_id: &str, model: &str) -> Result<ActiveClaudeSession, String> {
-    Ok(ActiveClaudeSession {
+fn build_generic_session_info(task_id: &str, model: &str) -> Result<ActiveAgentSession, String> {
+    Ok(ActiveAgentSession {
         task_id: task_id.to_string(),
         task_title: task_id.to_string(),
         role_name: "Scaffold AI".to_string(),
@@ -275,8 +278,8 @@ fn build_generic_session_info(task_id: &str, model: &str) -> Result<ActiveClaude
 fn build_task_session_info(
     task: &db::Task,
     role: &db::TeamRole,
-) -> Result<ActiveClaudeSession, String> {
-    Ok(ActiveClaudeSession {
+) -> Result<ActiveAgentSession, String> {
+    Ok(ActiveAgentSession {
         task_id: task.id.clone(),
         task_title: task.title.clone(),
         role_name: role.name.clone(),
@@ -288,14 +291,14 @@ fn build_task_session_info(
 
 fn promote_session_to_running(
     app_handle: &AppHandle,
-    sessions_arc: &Arc<Mutex<HashMap<String, ClaudeSessionEntry>>>,
+    sessions_arc: &Arc<Mutex<HashMap<String, AgentSessionEntry>>>,
     task_id: &str,
-    session: ClaudeSession,
+    session: AgentSession,
 ) -> Result<(), String> {
     let started_payload = session.info.clone();
 
     let mut sessions = sessions_arc.lock().map_err(|e| e.to_string())?;
-    sessions.insert(task_id.to_string(), ClaudeSessionEntry::Running(session));
+    sessions.insert(task_id.to_string(), AgentSessionEntry::Running(session));
     drop(sessions);
 
     if let Err(error) = app_handle.emit("claude_cli_started", started_payload) {
@@ -351,7 +354,7 @@ async fn build_exit_payload(
                         task_id: task_id.to_string(),
                         success: false,
                         reason: format!(
-                            "Claude の処理は完了しましたが、タスクを Review に更新できませんでした: {}",
+                            "CLI の処理は完了しましたが、タスクを Review に更新できませんでした: {}",
                             error
                         ),
                         new_status: None,
@@ -369,7 +372,7 @@ async fn build_exit_payload(
             task_id: task_id.to_string(),
             success: false,
             reason: format!(
-                "Claude の処理は完了しましたが、タスク状態の確認に失敗しました: {}",
+                "CLI の処理は完了しましたが、タスク状態の確認に失敗しました: {}",
                 error
             ),
             new_status: None,
@@ -379,8 +382,8 @@ async fn build_exit_payload(
 
 async fn record_claude_cli_usage_event(
     app_handle: &AppHandle,
-    session_info: &ActiveClaudeSession,
-    usage_context: &ClaudeUsageContext,
+    session_info: &ActiveAgentSession,
+    usage_context: &AgentUsageContext,
     success: bool,
     reason: String,
 ) {
@@ -412,11 +415,12 @@ async fn record_claude_cli_usage_event(
 
 async fn execute_prompt_request(
     app_handle: AppHandle,
-    sessions_arc: Arc<Mutex<HashMap<String, ClaudeSessionEntry>>>,
-    session_info: ActiveClaudeSession,
+    runner: &dyn CliRunner,
+    sessions_arc: Arc<Mutex<HashMap<String, AgentSessionEntry>>>,
+    session_info: ActiveAgentSession,
     prompt: String,
     cwd: String,
-    usage_context: ClaudeUsageContext,
+    usage_context: AgentUsageContext,
 ) -> Result<(), String> {
     let cwd_path = std::path::Path::new(&cwd);
     if !cwd_path.exists() || !cwd_path.is_dir() {
@@ -443,8 +447,9 @@ async fn execute_prompt_request(
         }
     };
 
-    if let Err(error) = spawn_claude_process(
+    if let Err(error) = spawn_agent_process(
         &app_handle,
+        runner,
         sessions_arc.clone(),
         session_info.clone(),
         prompt_file_path.clone(),
@@ -466,11 +471,11 @@ async fn execute_prompt_request(
 
         if let Some(entry) = remove_session_entry(&sessions_arc_timeout, &timeout_task_id) {
             match entry {
-                ClaudeSessionEntry::Running(mut session) => {
+                AgentSessionEntry::Running(mut session) => {
                     session.killer.kill();
                     cleanup_temp_file(&session.temp_file_path);
                 }
-                ClaudeSessionEntry::Starting(_) => {}
+                AgentSessionEntry::Starting(_) => {}
             }
 
             record_claude_cli_usage_event(
@@ -499,7 +504,7 @@ async fn execute_prompt_request(
 
 pub async fn execute_claude_prompt_task(
     app_handle: AppHandle,
-    state: tauri::State<'_, ClaudeState>,
+    state: tauri::State<'_, AgentState>,
     task_id: String,
     prompt: String,
     cwd: String,
@@ -508,15 +513,17 @@ pub async fn execute_claude_prompt_task(
     let max_concurrent_agents = db::get_max_concurrent_agents_value(&app_handle).await?;
     let session_info = build_generic_session_info(&task_id, DEFAULT_CLAUDE_MODEL)?;
     let sessions_arc = reserve_session_slot(&state, session_info.clone(), max_concurrent_agents)?;
-    let usage_context = ClaudeUsageContext {
+    let usage_context = AgentUsageContext {
         source_kind: "scaffold_ai".to_string(),
         project_id,
         sprint_id: None,
         db_task_id: None,
     };
+    let runner = cli_runner::create_runner(&CliType::Claude)?;
 
     execute_prompt_request(
         app_handle,
+        runner.as_ref(),
         sessions_arc,
         session_info,
         prompt,
@@ -535,44 +542,43 @@ pub async fn execute_claude_prompt_task(
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
-fn spawn_claude_process(
+fn spawn_agent_process(
     app_handle: &AppHandle,
-    sessions_arc: Arc<Mutex<HashMap<String, ClaudeSessionEntry>>>,
-    session_info: ActiveClaudeSession,
+    runner: &dyn CliRunner,
+    sessions_arc: Arc<Mutex<HashMap<String, AgentSessionEntry>>>,
+    session_info: ActiveAgentSession,
     prompt_file_path: PathBuf,
     cwd: String,
-    usage_context: ClaudeUsageContext,
+    usage_context: AgentUsageContext,
 ) -> Result<(), String> {
     use std::process::{Command, Stdio};
 
     let cli_prompt = build_cli_prompt_from_file(&prompt_file_path);
-
-    let mut child = Command::new("claude")
-        .args([
-            "-p",
-            &cli_prompt,
-            "--model",
-            &session_info.model,
-            "--permission-mode",
-            "bypassPermissions",
-            "--add-dir",
-            &cwd,
-            "--verbose",
-        ])
+    let args = runner.build_args(&cli_prompt, &session_info.model, &cwd);
+    let mut command = Command::new(runner.command_name());
+    command
+        .args(&args)
         .current_dir(&cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()
-        .map_err(|e| {
-            let msg = if e.kind() == std::io::ErrorKind::NotFound {
-                format!("claude CLI が見つかりません。Claude Code CLI がインストール済みで PATH に通っていることを確認してください。({})", e)
-            } else {
-                format!("プロセス起動失敗: {}", e)
-            };
-            log::error!("{}", msg);
-            msg
-        })?;
+        .stdin(Stdio::null());
+    for (key, value) in runner.env_vars() {
+        command.env(key, value);
+    }
+    let mut child = command.spawn().map_err(|e| {
+        let msg = if e.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "{} が見つかりません。{} がインストール済みで PATH に通っていることを確認してください。({})",
+                runner.command_name(),
+                runner.display_name(),
+                e
+            )
+        } else {
+            format!("プロセス起動失敗 ({}): {}", runner.display_name(), e)
+        };
+        log::error!("{}", msg);
+        msg
+    })?;
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -580,7 +586,7 @@ fn spawn_claude_process(
     let mut running_info = session_info.clone();
     running_info.status = "Running".to_string();
 
-    let session = ClaudeSession {
+    let session = AgentSession {
         info: running_info.clone(),
         temp_file_path: prompt_file_path,
         killer: Box::new(StdChildKiller { child }),
@@ -649,7 +655,7 @@ fn spawn_claude_process(
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(300));
 
-        if let Some(ClaudeSessionEntry::Running(mut session)) =
+        if let Some(AgentSessionEntry::Running(mut session)) =
             remove_session_entry(&sessions_wait, &tid_wait)
         {
             let success = session.killer.wait_success();
@@ -682,13 +688,14 @@ fn spawn_claude_process(
 // ---------------------------------------------------------------------------
 
 #[cfg(not(target_os = "windows"))]
-fn spawn_claude_process(
+fn spawn_agent_process(
     app_handle: &AppHandle,
-    sessions_arc: Arc<Mutex<HashMap<String, ClaudeSessionEntry>>>,
-    session_info: ActiveClaudeSession,
+    runner: &dyn CliRunner,
+    sessions_arc: Arc<Mutex<HashMap<String, AgentSessionEntry>>>,
+    session_info: ActiveAgentSession,
     prompt_file_path: PathBuf,
     cwd: String,
-    usage_context: ClaudeUsageContext,
+    usage_context: AgentUsageContext,
 ) -> Result<(), String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -701,27 +708,20 @@ fn spawn_claude_process(
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
     let cli_prompt = build_cli_prompt_from_file(&prompt_file_path);
-
-    let mut cmd = CommandBuilder::new("claude");
-    cmd.args([
-        "-p",
-        &cli_prompt,
-        "--model",
-        &session_info.model,
-        "--permission-mode",
-        "bypassPermissions",
-        "--add-dir",
-        &cwd,
-        "--verbose",
-    ]);
+    let args = runner.build_args(&cli_prompt, &session_info.model, &cwd);
+    let mut cmd = CommandBuilder::new(runner.command_name());
+    cmd.args(args.iter().map(String::as_str));
     cmd.cwd(&cwd);
     for (key, val) in std::env::vars() {
+        cmd.env(key, val);
+    }
+    for (key, val) in runner.env_vars() {
         cmd.env(key, val);
     }
     cmd.env("TERM", "xterm-256color");
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| {
-        let msg = format!("プロセス起動失敗: {}", e);
+        let msg = format!("プロセス起動失敗 ({}): {}", runner.display_name(), e);
         log::error!("{}", msg);
         msg
     })?;
@@ -731,7 +731,7 @@ fn spawn_claude_process(
     let mut running_info = session_info.clone();
     running_info.status = "Running".to_string();
 
-    let session = ClaudeSession {
+    let session = AgentSession {
         info: running_info.clone(),
         temp_file_path: prompt_file_path,
         killer: Box::new(PtyChildKiller {
@@ -775,7 +775,7 @@ fn spawn_claude_process(
 
         std::thread::sleep(std::time::Duration::from_millis(200));
 
-        if let Some(ClaudeSessionEntry::Running(mut session)) =
+        if let Some(AgentSessionEntry::Running(mut session)) =
             remove_session_entry(&sessions_wait, &tid_clone)
         {
             let success = session.killer.wait_success();
@@ -808,10 +808,10 @@ fn spawn_claude_process(
 
 #[tauri::command]
 pub async fn get_active_claude_sessions(
-    state: tauri::State<'_, ClaudeState>,
-) -> Result<Vec<ActiveClaudeSession>, String> {
+    state: tauri::State<'_, AgentState>,
+) -> Result<Vec<ActiveAgentSession>, String> {
     let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
-    let mut result: Vec<ActiveClaudeSession> = sessions.values().map(get_session_summary).collect();
+    let mut result: Vec<ActiveAgentSession> = sessions.values().map(get_session_summary).collect();
     result.sort_by_key(|session| session.started_at);
     Ok(result)
 }
@@ -819,7 +819,7 @@ pub async fn get_active_claude_sessions(
 #[tauri::command]
 pub async fn execute_claude_task(
     app_handle: AppHandle,
-    state: tauri::State<'_, ClaudeState>,
+    state: tauri::State<'_, AgentState>,
     task_id: String,
     cwd: String,
     additional_context: Option<String>,
@@ -842,9 +842,14 @@ pub async fn execute_claude_task(
     let role = db::get_team_role_by_id(&app_handle, &role_id)
         .await?
         .ok_or_else(|| format!("担当ロールが見つかりません: {}", role_id))?;
+    let cli_type = CliType::from_str(&role.cli_type);
+    let runner = cli_runner::create_runner(&cli_type)?;
 
     if role.model.trim().is_empty() {
-        return Err("担当ロールの Claude モデルが未設定です。".to_string());
+        return Err(format!(
+            "担当ロールの {} モデルが未設定です。",
+            runner.display_name()
+        ));
     }
     if role.system_prompt.trim().is_empty() {
         return Err("担当ロールのシステムプロンプトが未設定です。".to_string());
@@ -855,9 +860,10 @@ pub async fn execute_claude_task(
     let sessions_arc = reserve_session_slot(&state, session_info.clone(), max_concurrent_agents)?;
 
     log::info!(
-        "Preparing claude CLI task: task_id={}, role={}, model={}, configured_limit={}",
+        "Preparing CLI task: task_id={}, role={}, cli_type={}, model={}, configured_limit={}",
         task.id,
         role.name,
+        cli_type.as_str(),
         role.model,
         max_concurrent_agents
     );
@@ -926,7 +932,7 @@ pub async fn execute_claude_task(
     .await?;
 
     let prompt = build_task_prompt(&task, &role, additional_context.as_deref());
-    let usage_context = ClaudeUsageContext {
+    let usage_context = AgentUsageContext {
         source_kind: "task_execution".to_string(),
         project_id: Some(task.project_id.clone()),
         sprint_id: task.sprint_id.clone(),
@@ -934,6 +940,7 @@ pub async fn execute_claude_task(
     };
     let result = execute_prompt_request(
         app_handle.clone(),
+        runner.as_ref(),
         sessions_arc,
         session_info,
         prompt,
@@ -959,22 +966,18 @@ pub async fn execute_claude_task(
 #[tauri::command]
 pub async fn kill_claude_process(
     app_handle: AppHandle,
-    state: tauri::State<'_, ClaudeState>,
+    state: tauri::State<'_, AgentState>,
     task_id: String,
 ) -> Result<(), String> {
-    let entry = remove_session_entry(&state.sessions, &task_id).ok_or_else(|| {
-        format!(
-            "task_id={} に紐づく Claude プロセスは存在しません。",
-            task_id
-        )
-    })?;
+    let entry = remove_session_entry(&state.sessions, &task_id)
+        .ok_or_else(|| format!("task_id={} に紐づく CLI プロセスは存在しません。", task_id))?;
 
     match entry {
-        ClaudeSessionEntry::Running(mut session) => {
+        AgentSessionEntry::Running(mut session) => {
             session.killer.kill();
             cleanup_temp_file(&session.temp_file_path);
         }
-        ClaudeSessionEntry::Starting(_) => {}
+        AgentSessionEntry::Starting(_) => {}
     }
 
     app_handle

@@ -143,6 +143,7 @@ pub struct TeamRole {
     pub id: String,
     pub name: String,
     pub system_prompt: String,
+    pub cli_type: String,
     pub model: String,
     pub avatar_image: Option<String>,
     pub sort_order: i32,
@@ -159,6 +160,7 @@ pub struct TeamRoleInput {
     pub id: String,
     pub name: String,
     pub system_prompt: String,
+    pub cli_type: String,
     pub model: String,
     pub avatar_image: Option<String>,
     pub sort_order: i32,
@@ -381,7 +383,7 @@ pub async fn get_team_role_by_id(
     role_id: &str,
 ) -> Result<Option<TeamRole>, String> {
     let query = r#"
-        SELECT id, name, system_prompt, model, avatar_image, sort_order
+        SELECT id, name, system_prompt, cli_type, model, avatar_image, sort_order
         FROM team_roles
         WHERE id = ?
         LIMIT 1
@@ -755,6 +757,9 @@ fn validate_team_configuration(config: &TeamConfigurationInput) -> Result<(), St
         if role.system_prompt.trim().is_empty() {
             return Err(format!("roles[{}].system_prompt は必須です", index));
         }
+        if role.cli_type.trim().is_empty() {
+            return Err(format!("roles[{}].cli_type は必須です", index));
+        }
         if role.model.trim().is_empty() {
             return Err(format!("roles[{}].model は必須です", index));
         }
@@ -769,7 +774,7 @@ pub async fn get_team_configuration(app: AppHandle) -> Result<TeamConfiguration,
     let settings = select_query::<TeamSettings>(&app, settings_query, vec![]).await?;
 
     let roles_query = r#"
-        SELECT id, name, system_prompt, model, avatar_image, sort_order
+        SELECT id, name, system_prompt, cli_type, model, avatar_image, sort_order
         FROM team_roles
         WHERE team_settings_id = 1
         ORDER BY sort_order ASC, created_at ASC
@@ -826,6 +831,11 @@ pub async fn save_team_configuration(
         .map_err(|e| e.to_string())?;
 
     for (index, role) in config.roles.iter().enumerate() {
+        let cli_type = if role.cli_type.trim().is_empty() {
+            "claude"
+        } else {
+            role.cli_type.trim()
+        };
         sqlx::query(
             r#"
             INSERT INTO team_roles (
@@ -833,16 +843,18 @@ pub async fn save_team_configuration(
                 team_settings_id,
                 name,
                 system_prompt,
+                cli_type,
                 model,
                 avatar_image,
                 sort_order,
                 updated_at
-            ) VALUES (?, 1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             "#,
         )
         .bind(role.id.trim())
         .bind(role.name.trim())
         .bind(role.system_prompt.trim())
+        .bind(cli_type)
         .bind(role.model.trim())
         .bind(role.avatar_image.clone())
         .bind(index as i32)

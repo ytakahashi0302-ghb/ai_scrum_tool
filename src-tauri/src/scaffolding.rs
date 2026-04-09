@@ -407,7 +407,7 @@ pub async fn execute_scaffold_cli(
 #[tauri::command]
 pub async fn execute_scaffold_ai(
     app_handle: AppHandle,
-    state: tauri::State<'_, crate::claude_runner::ClaudeState>,
+    state: tauri::State<'_, crate::claude_runner::AgentState>,
     local_path: String,
     tech_stack_info: String,
 ) -> Result<(), String> {

@@ -19,6 +19,7 @@ function createEmptyRole(): TeamRoleSetting {
         id: crypto.randomUUID(),
         name: '',
         system_prompt: '',
+        cli_type: 'claude',
         model: 'claude-3-5-sonnet-20241022',
         avatar_image: null,
         sort_order: 0,
