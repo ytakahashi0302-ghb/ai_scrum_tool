@@ -3,8 +3,11 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashSet;
 use std::fmt;
 use tauri::{AppHandle, Emitter};
+
+const STORY_DUPLICATE_SIMILARITY_THRESHOLD: f64 = 0.88;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CreateStoryAndTasksArgs {
@@ -78,6 +81,108 @@ async fn get_project_backlog_counts(
         tasks,
         dependencies,
     })
+}
+
+fn normalize_story_title(title: &str) -> String {
+    title
+        .chars()
+        .flat_map(|ch| ch.to_lowercase())
+        .filter(|ch| ch.is_alphanumeric())
+        .collect()
+}
+
+fn story_title_bigrams(title: &str) -> HashSet<String> {
+    let chars = title.chars().collect::<Vec<_>>();
+    match chars.len() {
+        0 => HashSet::new(),
+        1 => std::iter::once(title.to_string()).collect(),
+        _ => chars
+            .windows(2)
+            .map(|window| window.iter().collect::<String>())
+            .collect(),
+    }
+}
+
+fn story_title_similarity(candidate: &str, existing: &str) -> f64 {
+    let candidate = normalize_story_title(candidate);
+    let existing = normalize_story_title(existing);
+
+    if candidate.is_empty() || existing.is_empty() {
+        return 0.0;
+    }
+    if candidate == existing {
+        return 1.0;
+    }
+
+    let shorter_len = candidate.chars().count().min(existing.chars().count());
+    if shorter_len >= 6 && (candidate.contains(&existing) || existing.contains(&candidate)) {
+        return 0.96;
+    }
+
+    let candidate_bigrams = story_title_bigrams(&candidate);
+    let existing_bigrams = story_title_bigrams(&existing);
+    if candidate_bigrams.is_empty() || existing_bigrams.is_empty() {
+        return 0.0;
+    }
+
+    let intersection = candidate_bigrams.intersection(&existing_bigrams).count() as f64;
+    (2.0 * intersection) / ((candidate_bigrams.len() + existing_bigrams.len()) as f64)
+}
+
+fn build_duplicate_story_error(story: &crate::db::Story, similarity: f64) -> String {
+    let status_label = if story.archived {
+        "Completed / Archived".to_string()
+    } else {
+        story.status.clone()
+    };
+
+    format!(
+        "既存 Story と重複する可能性が高いため、新規作成を停止しました。候補: \"{}\" (ID: {}, status: {})。類似度: {:.2}。既存 Story へ task を追加する場合は target_story_id を指定し、完了済み実装の派生作業なら差分が分かるタイトルへ具体化してください。",
+        story.title, story.id, status_label, similarity
+    )
+}
+
+pub async fn guard_story_creation_against_duplicates(
+    app: &AppHandle,
+    project_id: &str,
+    target_story_id: Option<&str>,
+    story_title: Option<&str>,
+) -> Result<(), String> {
+    if target_story_id
+        .map(str::trim)
+        .map(|value| !value.is_empty())
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    let Some(candidate_title) = story_title.map(str::trim).filter(|title| !title.is_empty()) else {
+        return Ok(());
+    };
+
+    let existing_stories = crate::db::select_query::<crate::db::Story>(
+        app,
+        "SELECT * FROM stories WHERE project_id = ? ORDER BY archived ASC, updated_at DESC, created_at DESC",
+        vec![serde_json::to_value(project_id).unwrap()],
+    )
+    .await?;
+
+    let duplicate = existing_stories
+        .into_iter()
+        .map(|story| {
+            let similarity = story_title_similarity(candidate_title, &story.title);
+            (story, similarity)
+        })
+        .filter(|(_, similarity)| *similarity >= STORY_DUPLICATE_SIMILARITY_THRESHOLD)
+        .max_by(|(_, left), (_, right)| {
+            left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+    if let Some((story, similarity)) = duplicate {
+        return Err(build_duplicate_story_error(&story, similarity));
+    }
+
+    Ok(())
 }
 
 impl Tool for CreateStoryAndTasksTool {
@@ -158,6 +263,15 @@ impl Tool for CreateStoryAndTasksTool {
             ));
         }
 
+        guard_story_creation_against_duplicates(
+            &self.app,
+            &self.project_id,
+            args.target_story_id.as_deref(),
+            args.story_title.as_deref(),
+        )
+        .await
+        .map_err(CustomToolError)?;
+
         let before = get_project_backlog_counts(&self.app, &self.project_id)
             .await
             .map_err(CustomToolError)?;
@@ -209,5 +323,25 @@ impl Tool for CreateStoryAndTasksTool {
                 Err(CustomToolError(e))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_story_title, story_title_similarity};
+
+    #[test]
+    fn normalize_story_title_removes_spacing_and_symbols() {
+        assert_eq!(
+            normalize_story_title("  DB 一覧表示を追加!! "),
+            "db一覧表示を追加"
+        );
+    }
+
+    #[test]
+    fn story_title_similarity_detects_exact_and_near_exact_titles() {
+        assert_eq!(story_title_similarity("DB一覧表示", "db 一覧表示"), 1.0);
+        assert!(story_title_similarity("ユーザー一覧APIを追加", "ユーザー一覧 API を追加") > 0.9);
+        assert!(story_title_similarity("通知設定画面を追加", "売上CSVエクスポート") < 0.5);
     }
 }

@@ -206,12 +206,16 @@ mod tests {
     fn windows_prefers_cmd_shim_before_extensionless_file() {
         let dir = tempfile::tempdir().expect("tempdir should be created");
         fs::write(dir.path().join("gemini"), "shim").expect("gemini shim should be written");
-        fs::write(dir.path().join("gemini.cmd"), "@echo off").expect("gemini.cmd should be written");
+        fs::write(dir.path().join("gemini.cmd"), "@echo off")
+            .expect("gemini.cmd should be written");
 
         let candidates = collect_existing_candidate_paths("gemini", &[dir.path().to_path_buf()]);
 
         assert_eq!(
-            candidates.first().and_then(|path| path.file_name()).and_then(|name| name.to_str()),
+            candidates
+                .first()
+                .and_then(|path| path.file_name())
+                .and_then(|name| name.to_str()),
             Some("gemini.cmd")
         );
     }
@@ -225,7 +229,10 @@ mod tests {
         let candidates = collect_existing_candidate_paths("gemini", &[dir.path().to_path_buf()]);
 
         assert_eq!(
-            candidates.first().and_then(|path| path.file_name()).and_then(|name| name.to_str()),
+            candidates
+                .first()
+                .and_then(|path| path.file_name())
+                .and_then(|name| name.to_str()),
             Some("gemini")
         );
     }

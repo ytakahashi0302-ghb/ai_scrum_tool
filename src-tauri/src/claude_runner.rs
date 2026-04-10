@@ -1,11 +1,11 @@
 use crate::{
     cli_detection,
     cli_runner::{self, CliRunner, CliType},
-    db, llm_observability, worktree,
+    db, git, llm_observability, worktree,
 };
 use std::collections::HashMap;
 use std::fs;
-use std::io::Read as IoRead;
+use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
@@ -236,6 +236,55 @@ fn build_cli_prompt_from_file(prompt_file_path: &Path) -> String {
     )
 }
 
+struct PreparedCliInvocation {
+    command_path: PathBuf,
+    args: Vec<String>,
+    stdin_payload: Option<String>,
+}
+
+fn prepare_cli_invocation(
+    runner: &dyn CliRunner,
+    cli_command_path: &Path,
+    prompt: &str,
+    model: &str,
+    cwd: &str,
+) -> Result<PreparedCliInvocation, String> {
+    let base_args = runner.build_args(prompt, model, cwd);
+    let (command_path, args) = runner.prepare_invocation(cli_command_path, base_args)?;
+
+    Ok(PreparedCliInvocation {
+        command_path,
+        args,
+        stdin_payload: runner.stdin_payload(prompt),
+    })
+}
+
+fn spawn_stdin_payload_writer<W>(mut writer: W, payload: String, cli_name: String, task_id: String)
+where
+    W: IoWrite + Send + 'static,
+{
+    std::thread::spawn(move || {
+        if let Err(error) = writer.write_all(payload.as_bytes()) {
+            log::warn!(
+                "failed to write stdin payload for {} task {}: {}",
+                cli_name,
+                task_id,
+                error
+            );
+            return;
+        }
+
+        if let Err(error) = writer.flush() {
+            log::warn!(
+                "failed to flush stdin payload for {} task {}: {}",
+                cli_name,
+                task_id,
+                error
+            );
+        }
+    });
+}
+
 fn get_session_summary(entry: &AgentSessionEntry) -> ActiveAgentSession {
     match entry {
         AgentSessionEntry::Starting(info) => info.clone(),
@@ -287,13 +336,14 @@ fn reserve_session_slot(
 fn build_generic_session_info(
     task_id: &str,
     runner: &dyn CliRunner,
+    model: String,
 ) -> Result<ActiveAgentSession, String> {
     Ok(ActiveAgentSession {
         task_id: task_id.to_string(),
         task_title: task_id.to_string(),
         role_name: "Scaffold AI".to_string(),
         cli_type: runner.cli_type().as_str().to_string(),
-        model: runner.default_model().to_string(),
+        model,
         started_at: current_timestamp_millis()?,
         status: "Starting".to_string(),
     })
@@ -352,6 +402,37 @@ fn promote_session_to_running(
     Ok(())
 }
 
+fn is_meta_output_file(path: &str) -> bool {
+    let normalized = path.trim().replace('\\', "/").trim_start_matches("./").to_ascii_lowercase();
+
+    matches!(
+        normalized.as_str(),
+        "walkthrough.md" | "handoff.md" | "task.md" | "implementation_plan.md"
+    )
+}
+
+async fn list_substantive_worktree_changes(
+    app_handle: &AppHandle,
+    task_id: &str,
+) -> Result<Option<Vec<String>>, String> {
+    let Some(record) = db::get_worktree_by_task_id(app_handle, task_id).await? else {
+        return Ok(None);
+    };
+
+    let worktree_path = PathBuf::from(record.worktree_path);
+    if !worktree_path.exists() {
+        return Ok(None);
+    }
+
+    let changed_files = git::list_changed_files_in_worktree(&worktree_path)?;
+    let substantive_files = changed_files
+        .into_iter()
+        .filter(|path| !is_meta_output_file(path))
+        .collect::<Vec<_>>();
+
+    Ok(Some(substantive_files))
+}
+
 async fn build_exit_payload(
     app_handle: &AppHandle,
     task_id: &str,
@@ -369,6 +450,29 @@ async fn build_exit_payload(
 
     match db::get_task_by_id(app_handle, task_id).await {
         Ok(Some(task)) => {
+            match list_substantive_worktree_changes(app_handle, task_id).await {
+                Ok(Some(substantive_files)) if substantive_files.is_empty() => {
+                    return ClaudeExitPayload {
+                        task_id: task_id.to_string(),
+                        success: false,
+                        reason: "CLI は完走しましたが、実装対象の差分を確認できませんでした。`walkthrough.md` / `handoff.md` などの補助ファイルのみが更新された可能性があるため、タスクは Review に移動していません。".to_string(),
+                        new_status: None,
+                    };
+                }
+                Ok(Some(_)) | Ok(None) => {}
+                Err(error) => {
+                    return ClaudeExitPayload {
+                        task_id: task_id.to_string(),
+                        success: false,
+                        reason: format!(
+                            "CLI の処理は完了しましたが、worktree 差分の確認に失敗したためタスクを Review に更新していません: {}",
+                            error
+                        ),
+                        new_status: None,
+                    };
+                }
+            }
+
             if task.status == "Review" {
                 ClaudeExitPayload {
                     task_id: task_id.to_string(),
@@ -545,12 +649,14 @@ async fn execute_prompt_request(
     Ok(())
 }
 
-pub async fn execute_claude_prompt_task(
+pub async fn execute_cli_prompt_task(
     app_handle: AppHandle,
     state: tauri::State<'_, AgentState>,
     task_id: String,
     prompt: String,
     cwd: String,
+    cli_type: CliType,
+    model: String,
     project_id: Option<String>,
 ) -> Result<(), String> {
     let max_concurrent_agents = db::get_max_concurrent_agents_value(&app_handle).await?;
@@ -560,9 +666,10 @@ pub async fn execute_claude_prompt_task(
         sprint_id: None,
         db_task_id: None,
     };
-    let runner = cli_runner::create_runner(&CliType::Claude)?;
+    let runner = cli_runner::create_runner(&cli_type)?;
     let cli_command_path = resolve_cli_command_path(runner.as_ref())?;
-    let session_info = build_generic_session_info(&task_id, runner.as_ref())?;
+    let session_info =
+        build_generic_session_info(&task_id, runner.as_ref(), runner.resolve_model(&model))?;
     let sessions_arc = reserve_session_slot(&state, session_info.clone(), max_concurrent_agents)?;
 
     execute_prompt_request(
@@ -600,14 +707,24 @@ fn spawn_agent_process(
     use std::process::{Command, Stdio};
 
     let cli_prompt = build_cli_prompt_from_file(&prompt_file_path);
-    let args = runner.build_args(&cli_prompt, &session_info.model, &cwd);
-    let mut command = Command::new(cli_command_path);
+    let prepared = prepare_cli_invocation(
+        runner,
+        cli_command_path,
+        &cli_prompt,
+        &session_info.model,
+        &cwd,
+    )?;
+    let mut command = Command::new(&prepared.command_path);
     command
-        .args(&args)
+        .args(&prepared.args)
         .current_dir(&cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(Stdio::null());
+        .stdin(if prepared.stdin_payload.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
     for (key, value) in runner.env_vars() {
         command.env(key, value);
     }
@@ -620,6 +737,21 @@ fn spawn_agent_process(
         log::error!("{}", msg);
         msg
     })?;
+
+    if let Some(payload) = prepared.stdin_payload {
+        let stdin = child.stdin.take().ok_or_else(|| {
+            format!(
+                "{} の stdin を確保できず、prompt を渡せませんでした。",
+                runner.display_name()
+            )
+        })?;
+        spawn_stdin_payload_writer(
+            stdin,
+            payload,
+            runner.display_name().to_string(),
+            session_info.task_id.clone(),
+        );
+    }
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -750,9 +882,15 @@ fn spawn_agent_process(
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
     let cli_prompt = build_cli_prompt_from_file(&prompt_file_path);
-    let args = runner.build_args(&cli_prompt, &session_info.model, &cwd);
-    let mut cmd = CommandBuilder::new(cli_command_path.to_string_lossy().to_string());
-    cmd.args(args.iter().map(String::as_str));
+    let prepared = prepare_cli_invocation(
+        runner,
+        cli_command_path,
+        &cli_prompt,
+        &session_info.model,
+        &cwd,
+    )?;
+    let mut cmd = CommandBuilder::new(prepared.command_path.to_string_lossy().to_string());
+    cmd.args(prepared.args.iter().map(String::as_str));
     cmd.cwd(&cwd);
     for (key, val) in std::env::vars() {
         cmd.env(key, val);
@@ -767,6 +905,22 @@ fn spawn_agent_process(
         log::error!("{}", msg);
         msg
     })?;
+
+    if let Some(payload) = prepared.stdin_payload {
+        let writer = pair.master.take_writer().map_err(|error| {
+            format!(
+                "{} の stdin writer を確保できず、prompt を渡せませんでした: {}",
+                runner.display_name(),
+                error
+            )
+        })?;
+        spawn_stdin_payload_writer(
+            writer,
+            payload,
+            runner.display_name().to_string(),
+            session_info.task_id.clone(),
+        );
+    }
 
     let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
 
@@ -1031,4 +1185,60 @@ pub async fn kill_claude_process(
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_meta_output_file, prepare_cli_invocation};
+    use crate::cli_runner::{claude::ClaudeRunner, codex::CodexRunner, CliRunner};
+    use std::path::Path;
+
+    #[test]
+    fn prepare_cli_invocation_keeps_argument_prompt_for_claude_runner() {
+        let runner = ClaudeRunner;
+        let prepared = prepare_cli_invocation(
+            &runner,
+            Path::new("claude"),
+            "sample prompt",
+            "claude-model",
+            "C:/repo",
+        )
+        .expect("claude invocation should be prepared");
+
+        assert_eq!(prepared.command_path, Path::new("claude"));
+        assert_eq!(prepared.stdin_payload, None);
+        assert_eq!(
+            prepared.args,
+            runner.build_args("sample prompt", "claude-model", "C:/repo")
+        );
+    }
+
+    #[test]
+    fn prepare_cli_invocation_collects_stdin_payload_for_codex_runner() {
+        let runner = CodexRunner;
+        let prepared = prepare_cli_invocation(
+            &runner,
+            Path::new("codex"),
+            "sample prompt",
+            "gpt-5.3-codex-spark",
+            "C:/repo",
+        )
+        .expect("codex invocation should be prepared");
+
+        assert_eq!(prepared.command_path, Path::new("codex"));
+        assert_eq!(prepared.stdin_payload.as_deref(), Some("sample prompt"));
+        assert_eq!(
+            prepared.args,
+            runner.build_args("sample prompt", "gpt-5.3-codex-spark", "C:/repo")
+        );
+    }
+
+    #[test]
+    fn meta_output_files_are_treated_as_non_substantive_changes() {
+        assert!(is_meta_output_file("walkthrough.md"));
+        assert!(is_meta_output_file("./handoff.md"));
+        assert!(is_meta_output_file("IMPLEMENTATION_PLAN.md"));
+        assert!(!is_meta_output_file("docs/API_SPEC.md"));
+        assert!(!is_meta_output_file("src/App.tsx"));
+    }
 }

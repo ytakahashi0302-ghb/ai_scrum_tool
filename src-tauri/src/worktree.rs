@@ -441,7 +441,8 @@ pub async fn merge_worktree(
             worktrees.remove(&task_id);
         }
 
-        let _ = db::update_worktree_record_state(&app_handle, &task_id, None, None, "removed").await;
+        let _ =
+            db::update_worktree_record_state(&app_handle, &task_id, None, None, "removed").await;
 
         return Ok(MergeResult::Error {
             message: "マージ対象の task branch が見つかりません。古い競合状態を掃除したため、「AIで再実行する」で最新 main からやり直してください。".to_string(),
@@ -1177,4 +1178,3 @@ mod tests {
             .contains("Initial commit"));
     }
 }
-

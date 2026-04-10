@@ -317,6 +317,11 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
         }
     }, [refreshSetupStatus]);
 
+    const handleTabChange = useCallback((tab: SettingsTab) => {
+        setActiveTab(tab);
+        setHasInitializedTabForOpen(true);
+    }, []);
+
     // Initial load
     useEffect(() => {
         if (isOpen) {
@@ -617,7 +622,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
         >
             <div className="flex border-b border-gray-200 mb-4">
                 <button
-                    onClick={() => setActiveTab('setup')}
+                    onClick={() => handleTabChange('setup')}
                     className={`pb-2 px-4 text-sm font-medium transition-colors ${
                         activeTab === 'setup'
                             ? 'border-b-2 border-blue-500 text-blue-600'
@@ -627,7 +632,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                     セットアップ状況
                 </button>
                 <button
-                    onClick={() => setActiveTab('ai')}
+                    onClick={() => handleTabChange('ai')}
                     className={`pb-2 px-4 text-sm font-medium transition-colors ${
                         activeTab === 'ai' 
                             ? 'border-b-2 border-blue-500 text-blue-600' 
@@ -637,7 +642,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                     POアシスタント設定
                 </button>
                 <button
-                    onClick={() => setActiveTab('team')}
+                    onClick={() => handleTabChange('team')}
                     className={`pb-2 px-4 text-sm font-medium transition-colors ${
                         activeTab === 'team'
                             ? 'border-b-2 border-blue-500 text-blue-600' 
@@ -647,7 +652,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                     チーム設定
                 </button>
                 <button
-                    onClick={() => setActiveTab('analytics')}
+                    onClick={() => handleTabChange('analytics')}
                     className={`pb-2 px-4 text-sm font-medium transition-colors ${
                         activeTab === 'analytics'
                             ? 'border-b-2 border-blue-500 text-blue-600'
@@ -657,7 +662,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                     アナリティクス
                 </button>
                 <button
-                    onClick={() => setActiveTab('general')}
+                    onClick={() => handleTabChange('general')}
                     className={`pb-2 px-4 text-sm font-medium transition-colors ${
                         activeTab === 'general'
                             ? 'border-b-2 border-blue-500 text-blue-600'

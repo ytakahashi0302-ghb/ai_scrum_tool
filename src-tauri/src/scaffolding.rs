@@ -1,5 +1,6 @@
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_store::StoreExt;
 
 use crate::pty_manager::PtyManager;
 
@@ -52,6 +53,36 @@ struct ScaffoldExitPayload {
     reason: String,
 }
 
+#[derive(Debug, Clone)]
+enum ScaffoldAiTransport {
+    Cli {
+        cli_type: crate::cli_runner::CliType,
+        model: String,
+        cwd: String,
+    },
+    Api {
+        provider: crate::rig_provider::AiProvider,
+        api_key: String,
+        model: String,
+    },
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ApiScaffoldPlan {
+    #[serde(default)]
+    directories: Vec<String>,
+    #[serde(default)]
+    files: Vec<ApiScaffoldFile>,
+    #[serde(default)]
+    summary: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ApiScaffoldFile {
+    path: String,
+    content: String,
+}
+
 // ---------------------------------------------------------------------------
 // Inception ファイル以外を検出するためのフィルタ
 // ---------------------------------------------------------------------------
@@ -64,8 +95,306 @@ const INCEPTION_FILES: &[&str] = &[
     ".claude",
 ];
 
+const PO_ASSISTANT_TRANSPORT_KEY: &str = "po-assistant-transport";
+const PO_ASSISTANT_CLI_TYPE_KEY: &str = "po-assistant-cli-type";
+const PO_ASSISTANT_CLI_MODEL_KEY: &str = "po-assistant-cli-model";
+
 fn is_inception_or_scaffold_file(name: &str) -> bool {
     INCEPTION_FILES.iter().any(|f| name == *f)
+}
+
+fn extract_store_string_value(value: serde_json::Value) -> Option<String> {
+    if let Some(obj) = value.as_object() {
+        obj.get("value")
+            .and_then(|inner| inner.as_str())
+            .map(|inner| inner.to_string())
+    } else {
+        value.as_str().map(|inner| inner.to_string())
+    }
+}
+
+fn emit_scaffold_output(app_handle: &AppHandle, output: impl Into<String>) {
+    let _ = app_handle.emit(
+        "scaffold_output",
+        ScaffoldOutputPayload {
+            output: output.into(),
+        },
+    );
+}
+
+fn emit_scaffold_exit(app_handle: &AppHandle, success: bool, reason: impl Into<String>) {
+    let _ = app_handle.emit(
+        "scaffold_exit",
+        ScaffoldExitPayload {
+            success,
+            reason: reason.into(),
+        },
+    );
+}
+
+fn scaffold_provider_label(provider: &crate::rig_provider::AiProvider) -> &'static str {
+    match provider {
+        crate::rig_provider::AiProvider::Anthropic => "anthropic",
+        crate::rig_provider::AiProvider::Gemini => "gemini",
+        crate::rig_provider::AiProvider::OpenAI => "openai",
+        crate::rig_provider::AiProvider::Ollama => "ollama",
+    }
+}
+
+async fn resolve_scaffold_ai_transport(
+    app_handle: &AppHandle,
+    local_path: &str,
+) -> Result<ScaffoldAiTransport, String> {
+    let store = app_handle
+        .store("settings.json")
+        .map_err(|e| format!("Failed to access store: {}", e))?;
+    let transport_kind = store
+        .get(PO_ASSISTANT_TRANSPORT_KEY)
+        .and_then(extract_store_string_value)
+        .unwrap_or_else(|| "api".to_string());
+
+    if transport_kind.trim().eq_ignore_ascii_case("cli") {
+        let cli_type = crate::cli_runner::CliType::from_str(
+            &store
+                .get(PO_ASSISTANT_CLI_TYPE_KEY)
+                .and_then(extract_store_string_value)
+                .unwrap_or_else(|| "claude".to_string()),
+        );
+        let runner = crate::cli_runner::create_runner(&cli_type)?;
+        let model = runner.resolve_model(
+            &store
+                .get(PO_ASSISTANT_CLI_MODEL_KEY)
+                .and_then(extract_store_string_value)
+                .unwrap_or_default(),
+        );
+
+        Ok(ScaffoldAiTransport::Cli {
+            cli_type,
+            model,
+            cwd: local_path.to_string(),
+        })
+    } else {
+        let (provider, api_key, model) =
+            crate::rig_provider::resolve_provider_and_key(app_handle, None).await?;
+        Ok(ScaffoldAiTransport::Api {
+            provider,
+            api_key,
+            model,
+        })
+    }
+}
+
+fn strip_json_code_fence(content: &str) -> String {
+    let trimmed = content.trim();
+    if !trimmed.starts_with("```") {
+        return trimmed.to_string();
+    }
+
+    let mut lines = trimmed.lines();
+    let _ = lines.next();
+    let mut body = lines.collect::<Vec<_>>();
+    if body
+        .last()
+        .map(|line| line.trim() == "```")
+        .unwrap_or(false)
+    {
+        body.pop();
+    }
+    body.join("\n").trim().to_string()
+}
+
+fn parse_api_scaffold_plan(content: &str) -> Result<ApiScaffoldPlan, String> {
+    let normalized = strip_json_code_fence(content);
+    serde_json::from_str::<ApiScaffoldPlan>(&normalized).map_err(|error| {
+        format!(
+            "AI スキャフォールド応答を JSON として解釈できませんでした: {}",
+            error
+        )
+    })
+}
+
+fn normalize_scaffold_relative_path(relative_path: &str) -> Result<PathBuf, String> {
+    let candidate = relative_path.trim();
+    if candidate.is_empty() {
+        return Err("空のパスは使用できません。".to_string());
+    }
+
+    let candidate = candidate.replace('\\', "/");
+    let path = Path::new(&candidate);
+    if path.is_absolute() {
+        return Err(format!("絶対パスは使用できません: {}", relative_path));
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                return Err(format!(
+                    "親ディレクトリ参照を含むパスは使用できません: {}",
+                    relative_path
+                ));
+            }
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(format!("無効なパスです: {}", relative_path));
+            }
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        return Err(format!("無効なパスです: {}", relative_path));
+    }
+
+    Ok(normalized)
+}
+
+fn is_reserved_scaffold_target(relative_path: &Path) -> bool {
+    let normalized = relative_path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .to_string();
+
+    let top_level = normalized.split('/').next().unwrap_or_default();
+    matches!(
+        normalized.as_str(),
+        "PRODUCT_CONTEXT.md" | "ARCHITECTURE.md" | "Rule.md" | "AGENT.md"
+    ) || top_level.eq_ignore_ascii_case(".claude")
+}
+
+fn resolve_scaffold_target_path(base_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
+    let normalized = normalize_scaffold_relative_path(relative_path)?;
+    if is_reserved_scaffold_target(&normalized) {
+        return Err(format!(
+            "Scaffolding では保護対象ファイルを変更できません: {}",
+            normalized.display()
+        ));
+    }
+
+    Ok(base_dir.join(normalized))
+}
+
+async fn record_scaffold_provider_usage(
+    app_handle: &AppHandle,
+    project_id: Option<&str>,
+    response: &crate::rig_provider::LlmTextResponse,
+) {
+    let Some(project_id) = project_id else {
+        return;
+    };
+
+    if let Err(error) = crate::llm_observability::record_llm_usage(
+        app_handle,
+        crate::llm_observability::RecordLlmUsageInput {
+            project_id: project_id.to_string(),
+            task_id: None,
+            sprint_id: None,
+            source_kind: "scaffold_ai".to_string(),
+            transport_kind: "provider_api".to_string(),
+            provider: response.provider.clone(),
+            model: response.model.clone(),
+            usage: response.usage,
+            measurement_status: None,
+            request_started_at: Some(response.started_at),
+            request_completed_at: Some(response.completed_at),
+            success: true,
+            error_message: None,
+            raw_usage_json: Some(response.raw_usage_json.clone()),
+        },
+    )
+    .await
+    {
+        log::warn!(
+            "Failed to record scaffold provider usage for project_id={}: {}",
+            project_id,
+            error
+        );
+    }
+}
+
+fn apply_api_scaffold_plan(
+    app_handle: &AppHandle,
+    base_dir: &Path,
+    plan: ApiScaffoldPlan,
+) -> Result<String, String> {
+    let mut created_dirs = 0usize;
+    let mut created_files = 0usize;
+    let mut skipped_files = 0usize;
+
+    for directory in plan.directories {
+        let target_dir = resolve_scaffold_target_path(base_dir, &directory)?;
+        if target_dir.exists() {
+            continue;
+        }
+        std::fs::create_dir_all(&target_dir)
+            .map_err(|error| format!("ディレクトリ作成に失敗しました ({}): {}", target_dir.display(), error))?;
+        created_dirs += 1;
+        emit_scaffold_output(
+            app_handle,
+            format!("created dir: {}", target_dir.strip_prefix(base_dir).unwrap_or(&target_dir).display()),
+        );
+    }
+
+    for file in plan.files {
+        let target_file = resolve_scaffold_target_path(base_dir, &file.path)?;
+        if target_file.exists() {
+            skipped_files += 1;
+            emit_scaffold_output(
+                app_handle,
+                format!(
+                    "skip existing file: {}",
+                    target_file.strip_prefix(base_dir).unwrap_or(&target_file).display()
+                ),
+            );
+            continue;
+        }
+
+        if let Some(parent) = target_file.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "親ディレクトリ作成に失敗しました ({}): {}",
+                    parent.display(),
+                    error
+                )
+            })?;
+        }
+
+        std::fs::write(&target_file, file.content).map_err(|error| {
+            format!(
+                "ファイル作成に失敗しました ({}): {}",
+                target_file.display(),
+                error
+            )
+        })?;
+        created_files += 1;
+        emit_scaffold_output(
+            app_handle,
+            format!(
+                "created file: {}",
+                target_file.strip_prefix(base_dir).unwrap_or(&target_file).display()
+            ),
+        );
+    }
+
+    if created_dirs == 0 && created_files == 0 {
+        return Err(
+            "AI スキャフォールド結果から新規ディレクトリ・ファイルを作成できませんでした。".to_string(),
+        );
+    }
+
+    let mut summary = format!(
+        "AI スキャフォールド完了: dirs +{}, files +{}",
+        created_dirs, created_files
+    );
+    if skipped_files > 0 {
+        summary.push_str(&format!(", skipped {}", skipped_files));
+    }
+    if !plan.summary.trim().is_empty() {
+        summary.push_str(&format!(" / {}", plan.summary.trim()));
+    }
+
+    Ok(summary)
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +546,60 @@ ARCHITECTURE.md の内容:
 4. 既存の PRODUCT_CONTEXT.md, ARCHITECTURE.md, Rule.md は絶対に変更・削除しないこと"#,
         lang, fw, meta, stack.raw_content
     )
+}
+
+async fn execute_api_scaffold_generation(
+    app_handle: &AppHandle,
+    local_path: &str,
+    project_id: Option<&str>,
+    provider: crate::rig_provider::AiProvider,
+    api_key: &str,
+    model: &str,
+    tech_stack_info: &str,
+) -> Result<String, String> {
+    let system_prompt = r#"あなたはソフトウェアプロジェクトの初期構成を作る scaffolding アシスタントです。
+プロジェクト直下に作成すべき最小限のディレクトリと UTF-8 テキストファイルを JSON で返してください。
+
+出力ルール:
+- 出力は JSON オブジェクトのみ
+- 形式は必ず {"directories": string[], "files": [{"path": string, "content": string}], "summary": string}
+- path は必ずプロジェクト直下からの相対パス
+- 絶対パス、..、.claude 配下、PRODUCT_CONTEXT.md、ARCHITECTURE.md、Rule.md、AGENT.md は絶対に含めない
+- 既存の Inception ドキュメントを参照しつつ、それら自体は変更しない
+- content に markdown code fence を含めない
+- 実行可能な最小構成を優先し、不要に大量のファイルを作らない"#;
+
+    let user_prompt = format!(
+        r#"以下の技術スタック情報に基づき、初期 scaffolding 用の JSON を生成してください。
+
+対象ディレクトリ: {local_path}
+
+技術スタック / ARCHITECTURE.md 抜粋:
+{tech_stack_info}"#
+    );
+
+    emit_scaffold_output(
+        app_handle,
+        format!(
+            "AI scaffolding via API: provider={}, model={}",
+            scaffold_provider_label(&provider),
+            model
+        ),
+    );
+
+    let response = crate::rig_provider::chat_with_history(
+        &provider,
+        api_key,
+        model,
+        system_prompt,
+        &user_prompt,
+        vec![],
+    )
+    .await?;
+    record_scaffold_provider_usage(app_handle, project_id, &response).await;
+
+    let plan = parse_api_scaffold_plan(&response.content)?;
+    apply_api_scaffold_plan(app_handle, Path::new(local_path), plan)
 }
 
 // ---------------------------------------------------------------------------
@@ -402,8 +785,9 @@ pub async fn execute_scaffold_cli(
     }
 }
 
-/// Claude CLI 経由で AI にディレクトリ構造を生成させる。
-/// claude_runner の execute_claude_task と同じイベント（claude_cli_output / claude_cli_exit）で出力される。
+/// PO アシスタント設定に追従して AI にディレクトリ構造を生成させる。
+/// CLI transport は claude_runner と同じイベント（claude_cli_output / claude_cli_exit）を流し、
+/// API transport は scaffold_output / scaffold_exit を流す。
 #[tauri::command]
 pub async fn execute_scaffold_ai(
     app_handle: AppHandle,
@@ -421,16 +805,44 @@ pub async fn execute_scaffold_ai(
         .await?
         .map(|project| project.id);
 
-    // Claude CLI に直接委譲
-    crate::claude_runner::execute_claude_prompt_task(
-        app_handle,
-        state,
-        task_id,
-        tech_stack_info,
-        local_path,
-        project_id,
-    )
-    .await
+    match resolve_scaffold_ai_transport(&app_handle, &local_path).await? {
+        ScaffoldAiTransport::Cli {
+            cli_type,
+            model,
+            cwd,
+        } => crate::claude_runner::execute_cli_prompt_task(
+            app_handle,
+            state,
+            task_id,
+            tech_stack_info,
+            cwd,
+            cli_type,
+            model,
+            project_id,
+        )
+        .await,
+        ScaffoldAiTransport::Api {
+            provider,
+            api_key,
+            model,
+        } => {
+            match execute_api_scaffold_generation(
+                &app_handle,
+                &local_path,
+                project_id.as_deref(),
+                provider,
+                &api_key,
+                &model,
+                &tech_stack_info,
+            )
+            .await
+            {
+                Ok(summary) => emit_scaffold_exit(&app_handle, true, summary),
+                Err(error) => emit_scaffold_exit(&app_handle, false, error),
+            }
+            Ok(())
+        }
+    }
 }
 
 /// AGENT.md を生成する（参照ポインタ方式）。
@@ -556,5 +968,47 @@ fn collect_tree_entries(
                 lines,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        is_reserved_scaffold_target, normalize_scaffold_relative_path, parse_api_scaffold_plan,
+    };
+    use std::path::Path;
+
+    #[test]
+    fn parse_api_scaffold_plan_accepts_markdown_fenced_json() {
+        let plan = parse_api_scaffold_plan(
+            r#"```json
+{
+  "directories": ["src"],
+  "files": [{ "path": "src/main.ts", "content": "console.log('ok');" }],
+  "summary": "starter"
+}
+```"#,
+        )
+        .expect("fenced json should parse");
+
+        assert_eq!(plan.directories, vec!["src"]);
+        assert_eq!(plan.files.len(), 1);
+        assert_eq!(plan.files[0].path, "src/main.ts");
+        assert_eq!(plan.summary, "starter");
+    }
+
+    #[test]
+    fn normalize_scaffold_relative_path_rejects_parent_segments() {
+        let error = normalize_scaffold_relative_path("../src/main.ts")
+            .expect_err("parent segments should be rejected");
+
+        assert!(error.contains("親ディレクトリ参照"));
+    }
+
+    #[test]
+    fn is_reserved_scaffold_target_blocks_inception_files_and_dot_claude() {
+        assert!(is_reserved_scaffold_target(Path::new("PRODUCT_CONTEXT.md")));
+        assert!(is_reserved_scaffold_target(Path::new(".claude/settings.json")));
+        assert!(!is_reserved_scaffold_target(Path::new("src/main.ts")));
     }
 }

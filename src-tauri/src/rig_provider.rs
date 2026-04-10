@@ -15,6 +15,8 @@ use tauri_plugin_store::StoreExt;
 
 const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434";
 const DEFAULT_OLLAMA_MODEL: &str = "llama3.2";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-pro";
+const GEMINI_MAX_RETRIES: usize = 3;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AiProvider {
@@ -72,7 +74,8 @@ fn extract_store_string_value(value: serde_json::Value) -> Option<String> {
 }
 
 fn has_configured_store_value(value: Option<serde_json::Value>) -> bool {
-    value.and_then(extract_store_string_value)
+    value
+        .and_then(extract_store_string_value)
         .map(|inner| !inner.trim().is_empty())
         .unwrap_or(false)
 }
@@ -99,8 +102,29 @@ fn build_ollama_openai_base_url(endpoint: &str) -> String {
 
 fn build_ollama_tags_url(endpoint: &str) -> String {
     let normalized = normalize_ollama_endpoint(endpoint);
-    let root = normalized.strip_suffix("/v1").unwrap_or(normalized.as_str());
+    let root = normalized
+        .strip_suffix("/v1")
+        .unwrap_or(normalized.as_str());
     format!("{}/api/tags", root.trim_end_matches('/'))
+}
+
+fn is_retryable_gemini_error(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("503")
+        || normalized.contains("unavailable")
+        || normalized.contains("overloaded")
+}
+
+fn gemini_retry_delay(retry_index: usize) -> Duration {
+    Duration::from_secs(2_u64.pow((retry_index as u32) + 1))
+}
+
+fn build_gemini_retry_exhausted_error(last_error: &str) -> String {
+    format!(
+        "Gemini API が継続的に UNAVAILABLE を返しました。{} 回再試行しましたが回復しませんでした。最後のエラー: {}",
+        GEMINI_MAX_RETRIES,
+        last_error
+    )
 }
 
 fn build_openai_completion_client(api_key: &str) -> Result<openai::CompletionsClient, String> {
@@ -127,7 +151,12 @@ async fn fetch_ollama_status(endpoint: &str) -> OllamaStatus {
     let url = build_ollama_tags_url(&normalized_endpoint);
     let client = reqwest::Client::new();
 
-    match client.get(&url).timeout(Duration::from_secs(3)).send().await {
+    match client
+        .get(&url)
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+    {
         Ok(response) => {
             if !response.status().is_success() {
                 let status = response.status();
@@ -209,7 +238,7 @@ pub async fn resolve_provider_and_key(
     };
 
     let (key_name, model_key_name, default_model) = match provider {
-        AiProvider::Gemini => ("gemini-api-key", "gemini-model", "gemini-2.0-flash"),
+        AiProvider::Gemini => ("gemini-api-key", "gemini-model", DEFAULT_GEMINI_MODEL),
         AiProvider::OpenAI => ("openai-api-key", "openai-model", "gpt-4o"),
         AiProvider::Ollama => ("ollama-endpoint", "ollama-model", DEFAULT_OLLAMA_MODEL),
         AiProvider::Anthropic => (
@@ -348,43 +377,62 @@ async fn chat_gemini(
     model: &str,
     system_prompt: &str,
     user_input: &str,
-    mut chat_history: Vec<RigMessage>,
+    chat_history: Vec<RigMessage>,
 ) -> Result<LlmTextResponse, String> {
     let started_at = current_timestamp_millis()?;
-    let client = gemini::Client::new(api_key)
-        .map_err(|e| format!("Failed to create Gemini client: {}", e))?;
-    let agent: Agent<GeminiModel> = client
-        .agent(model)
-        .preamble(system_prompt)
-        .max_tokens(4096)
-        .build();
-    let response = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        agent
-            .prompt(user_input)
-            .with_history(&mut chat_history)
-            .extended_details(),
-    )
-    .await
-    .map_err(|_| "Gemini API timed out after 60 seconds".to_string())?
-    .map_err(|e| format!("Gemini error: {}", e))?;
-    let completed_at = current_timestamp_millis()?;
-    let usage = crate::llm_observability::NormalizedUsage::from(response.usage);
+    let base_history = chat_history;
+    let mut retry_count = 0;
 
-    Ok(LlmTextResponse {
-        content: response.output,
-        provider: "gemini".to_string(),
-        model: model.to_string(),
-        usage,
-        raw_usage_json: json!({
-            "input_tokens": usage.input_tokens,
-            "output_tokens": usage.output_tokens,
-            "total_tokens": usage.total_tokens,
-            "cached_input_tokens": usage.cached_input_tokens,
-        }),
-        started_at,
-        completed_at,
-    })
+    loop {
+        let client = gemini::Client::new(api_key)
+            .map_err(|e| format!("Failed to create Gemini client: {}", e))?;
+        let mut attempt_history = base_history.clone();
+        let agent: Agent<GeminiModel> = client
+            .agent(model)
+            .preamble(system_prompt)
+            .max_tokens(4096)
+            .build();
+        let response = tokio::time::timeout(
+            Duration::from_secs(60),
+            agent
+                .prompt(user_input)
+                .with_history(&mut attempt_history)
+                .extended_details(),
+        )
+        .await
+        .map_err(|_| "Gemini API timed out after 60 seconds".to_string())
+        .and_then(|result| result.map_err(|e| format!("Gemini error: {}", e)));
+
+        match response {
+            Ok(response) => {
+                let completed_at = current_timestamp_millis()?;
+                let usage = crate::llm_observability::NormalizedUsage::from(response.usage);
+
+                return Ok(LlmTextResponse {
+                    content: response.output,
+                    provider: "gemini".to_string(),
+                    model: model.to_string(),
+                    usage,
+                    raw_usage_json: json!({
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "total_tokens": usage.total_tokens,
+                        "cached_input_tokens": usage.cached_input_tokens,
+                    }),
+                    started_at,
+                    completed_at,
+                });
+            }
+            Err(error) if retry_count < GEMINI_MAX_RETRIES && is_retryable_gemini_error(&error) => {
+                tokio::time::sleep(gemini_retry_delay(retry_count)).await;
+                retry_count += 1;
+            }
+            Err(error) if is_retryable_gemini_error(&error) => {
+                return Err(build_gemini_retry_exhausted_error(&error));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 async fn chat_openai_compatible(
@@ -611,50 +659,73 @@ pub async fn chat_team_leader_with_tools(
             })
         }
         AiProvider::Gemini => {
-            let tool = crate::ai_tools::CreateStoryAndTasksTool {
-                app: app.clone(),
-                project_id: project_id.to_string(),
-            };
             let started_at = current_timestamp_millis()?;
-            let client = gemini::Client::new(api_key)
-                .map_err(|e| format!("Failed to create Gemini client: {}", e))?;
-            let agent = client
-                .agent(model)
-                .preamble(system_prompt)
-                .max_tokens(4096)
-                .tool(tool)
-                .default_max_turns(5)
-                .build();
-            let response = tokio::time::timeout(
-                std::time::Duration::from_secs(60),
-                agent
-                    .prompt(user_input)
-                    .with_history(&mut chat_history)
-                    .max_turns(5)
-                    .extended_details(),
-            )
-            .await
-            .map_err(|_| "Gemini API timed out after 60 seconds".to_string())?
-            .map_err(|e| format!("Gemini error: {}", e))?;
-            let completed_at = current_timestamp_millis()?;
-            let usage = crate::llm_observability::NormalizedUsage::from(response.usage);
-            let message_count = response.messages.as_ref().map(|messages| messages.len());
+            let base_history = chat_history;
+            let mut retry_count = 0;
 
-            Ok(LlmTextResponse {
-                content: response.output,
-                provider: "gemini".to_string(),
-                model: model.to_string(),
-                usage,
-                raw_usage_json: json!({
-                    "input_tokens": usage.input_tokens,
-                    "output_tokens": usage.output_tokens,
-                    "total_tokens": usage.total_tokens,
-                    "cached_input_tokens": usage.cached_input_tokens,
-                    "messages_count": message_count
-                }),
-                started_at,
-                completed_at,
-            })
+            loop {
+                let client = gemini::Client::new(api_key)
+                    .map_err(|e| format!("Failed to create Gemini client: {}", e))?;
+                let tool = crate::ai_tools::CreateStoryAndTasksTool {
+                    app: app.clone(),
+                    project_id: project_id.to_string(),
+                };
+                let mut attempt_history = base_history.clone();
+                let agent = client
+                    .agent(model)
+                    .preamble(system_prompt)
+                    .max_tokens(4096)
+                    .tool(tool)
+                    .default_max_turns(5)
+                    .build();
+                let response = tokio::time::timeout(
+                    Duration::from_secs(60),
+                    agent
+                        .prompt(user_input)
+                        .with_history(&mut attempt_history)
+                        .max_turns(5)
+                        .extended_details(),
+                )
+                .await
+                .map_err(|_| "Gemini API timed out after 60 seconds".to_string())
+                .and_then(|result| result.map_err(|e| format!("Gemini error: {}", e)));
+
+                match response {
+                    Ok(response) => {
+                        let completed_at = current_timestamp_millis()?;
+                        let usage = crate::llm_observability::NormalizedUsage::from(response.usage);
+                        let message_count =
+                            response.messages.as_ref().map(|messages| messages.len());
+
+                        return Ok(LlmTextResponse {
+                            content: response.output,
+                            provider: "gemini".to_string(),
+                            model: model.to_string(),
+                            usage,
+                            raw_usage_json: json!({
+                                "input_tokens": usage.input_tokens,
+                                "output_tokens": usage.output_tokens,
+                                "total_tokens": usage.total_tokens,
+                                "cached_input_tokens": usage.cached_input_tokens,
+                                "messages_count": message_count
+                            }),
+                            started_at,
+                            completed_at,
+                        });
+                    }
+                    Err(error)
+                        if retry_count < GEMINI_MAX_RETRIES
+                            && is_retryable_gemini_error(&error) =>
+                    {
+                        tokio::time::sleep(gemini_retry_delay(retry_count)).await;
+                        retry_count += 1;
+                    }
+                    Err(error) if is_retryable_gemini_error(&error) => {
+                        return Err(build_gemini_retry_exhausted_error(&error));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
         }
         AiProvider::OpenAI => {
             let client = build_openai_completion_client(api_key)?;
@@ -806,7 +877,11 @@ pub async fn get_available_models(
         "ollama" => {
             let endpoint = endpoint_override
                 .filter(|value| !value.trim().is_empty())
-                .or_else(|| store.get("ollama-endpoint").and_then(extract_store_string_value))
+                .or_else(|| {
+                    store
+                        .get("ollama-endpoint")
+                        .and_then(extract_store_string_value)
+                })
                 .unwrap_or_else(|| DEFAULT_OLLAMA_ENDPOINT.to_string());
             let status = fetch_ollama_status(&endpoint).await;
 
@@ -906,7 +981,11 @@ pub async fn check_ollama_status(
         .map_err(|e| format!("Failed to access store: {}", e))?;
     let endpoint = endpoint_override
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| store.get("ollama-endpoint").and_then(extract_store_string_value))
+        .or_else(|| {
+            store
+                .get("ollama-endpoint")
+                .and_then(extract_store_string_value)
+        })
         .unwrap_or_else(|| DEFAULT_OLLAMA_ENDPOINT.to_string());
 
     Ok(fetch_ollama_status(&endpoint).await)
@@ -916,9 +995,10 @@ pub async fn check_ollama_status(
 mod tests {
     use super::{
         build_ollama_openai_base_url, build_ollama_tags_url, extract_store_string_value,
-        has_configured_store_value, AiProvider,
+        gemini_retry_delay, has_configured_store_value, is_retryable_gemini_error, AiProvider,
     };
     use serde_json::json;
+    use std::time::Duration;
 
     #[test]
     fn extract_store_string_value_reads_wrapped_value() {
@@ -953,5 +1033,22 @@ mod tests {
             build_ollama_tags_url("http://localhost:11434/v1"),
             "http://localhost:11434/api/tags"
         );
+    }
+
+    #[test]
+    fn retryable_gemini_error_detects_unavailable_variants() {
+        assert!(is_retryable_gemini_error("503 Service Unavailable"));
+        assert!(is_retryable_gemini_error(
+            "{\"error\":{\"status\":\"UNAVAILABLE\",\"message\":\"high demand\"}}"
+        ));
+        assert!(is_retryable_gemini_error("Gemini overloaded right now"));
+        assert!(!is_retryable_gemini_error("Gemini error: invalid api key"));
+    }
+
+    #[test]
+    fn gemini_retry_delay_uses_exponential_backoff() {
+        assert_eq!(gemini_retry_delay(0), Duration::from_secs(2));
+        assert_eq!(gemini_retry_delay(1), Duration::from_secs(4));
+        assert_eq!(gemini_retry_delay(2), Duration::from_secs(8));
     }
 }

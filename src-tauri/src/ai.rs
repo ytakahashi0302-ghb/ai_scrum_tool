@@ -1,6 +1,5 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::Write;
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
@@ -63,6 +62,7 @@ struct ProjectBacklogCounts {
 const PO_ASSISTANT_TRANSPORT_KEY: &str = "po-assistant-transport";
 const PO_ASSISTANT_CLI_TYPE_KEY: &str = "po-assistant-cli-type";
 const PO_ASSISTANT_CLI_MODEL_KEY: &str = "po-assistant-cli-model";
+const CLI_OUTPUT_TAIL_MAX_CHARS: usize = 2048;
 
 #[derive(Debug, Clone)]
 enum PoTransport {
@@ -155,73 +155,154 @@ async fn resolve_project_cli_cwd(app: &AppHandle, project_id: &str) -> Result<St
     Ok(local_path)
 }
 
-fn canonicalize_for_matching(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
-fn path_is_within_trusted_root(candidate: &Path, trusted_root: &Path) -> bool {
-    let candidate = canonicalize_for_matching(candidate);
-    let trusted_root = canonicalize_for_matching(trusted_root);
-
-    candidate == trusted_root || candidate.starts_with(&trusted_root)
-}
-
-fn gemini_trusted_folders_path() -> Option<PathBuf> {
-    #[cfg(windows)]
-    let home = std::env::var_os("USERPROFILE");
-    #[cfg(not(windows))]
-    let home = std::env::var_os("HOME");
-
-    home.map(|home| {
-        PathBuf::from(home)
-            .join(".gemini")
-            .join("trustedFolders.json")
-    })
-}
-
-fn load_gemini_trusted_folders() -> Vec<PathBuf> {
-    let Some(path) = gemini_trusted_folders_path() else {
-        return Vec::new();
-    };
-
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-
-    let Ok(entries) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&raw)
-    else {
-        return Vec::new();
-    };
-
-    entries
-        .into_iter()
-        .filter_map(|(path, trust_kind)| match trust_kind.as_str() {
-            Some("TRUST_FOLDER" | "TRUST_PARENT") => Some(PathBuf::from(path)),
-            _ => None,
-        })
-        .collect()
-}
-
-fn select_gemini_execution_cwd(project_cwd: &str, trusted_folders: &[PathBuf]) -> String {
-    let project_path = Path::new(project_cwd);
-
-    if trusted_folders
-        .iter()
-        .any(|trusted_root| path_is_within_trusted_root(project_path, trusted_root))
-    {
-        return project_cwd.to_string();
+fn format_cli_args_for_error(args: &[String]) -> String {
+    if args.is_empty() {
+        return "(none)".to_string();
     }
 
-    trusted_folders
-        .iter()
-        .find(|trusted_root| trusted_root.is_dir())
-        .map(|trusted_root| trusted_root.to_string_lossy().to_string())
-        .unwrap_or_else(|| project_cwd.to_string())
+    args.iter()
+        .map(|arg| {
+            if arg.chars().any(char::is_whitespace) {
+                format!("{arg:?}")
+            } else {
+                arg.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
-fn resolve_gemini_cli_execution_cwd(project_cwd: &str) -> String {
-    let trusted_folders = load_gemini_trusted_folders();
-    select_gemini_execution_cwd(project_cwd, &trusted_folders)
+fn format_cli_exit_code(status: &std::process::ExitStatus) -> String {
+    status
+        .code()
+        .map(|code| code.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn truncate_output_tail(output: &str, max_chars: usize) -> Option<String> {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let total_chars = trimmed.chars().count();
+    if total_chars <= max_chars {
+        return Some(trimmed.to_string());
+    }
+
+    let tail = trimmed
+        .chars()
+        .skip(total_chars.saturating_sub(max_chars))
+        .collect::<String>();
+    Some(format!("...(末尾 {max_chars} 文字)\n{tail}"))
+}
+
+fn build_gemini_trust_hint(
+    cli_type: &crate::cli_runner::CliType,
+    stderr: &str,
+    stdout: &str,
+) -> Option<&'static str> {
+    if *cli_type != crate::cli_runner::CliType::Gemini {
+        return None;
+    }
+
+    let normalized = format!("{stderr}\n{stdout}").to_ascii_lowercase();
+    if normalized.contains("trust")
+        || normalized.contains("trusted folder")
+        || normalized.contains("trustedfolders.json")
+    {
+        Some("対象プロジェクトを `~/.gemini/trustedFolders.json` に追加してください。")
+    } else {
+        None
+    }
+}
+
+fn build_cli_execution_context(cwd: &str, args: &[String]) -> String {
+    format!("cwd: {cwd}\nargs: {}", format_cli_args_for_error(args))
+}
+
+fn create_cli_response_capture_path(
+    cli_type: &crate::cli_runner::CliType,
+    cwd: &str,
+) -> std::path::PathBuf {
+    std::path::Path::new(cwd).join(format!(
+        "vicara-po-{}-{}.txt",
+        cli_type.as_str(),
+        uuid::Uuid::new_v4()
+    ))
+}
+
+fn build_cli_timeout_error(
+    display_name: &str,
+    timeout_secs: u64,
+    cwd: &str,
+    args: &[String],
+) -> String {
+    format!(
+        "{display_name} の実行が {timeout_secs} 秒でタイムアウトしました。\n{}",
+        build_cli_execution_context(cwd, args)
+    )
+}
+
+fn build_cli_nonzero_exit_error(
+    cli_type: &crate::cli_runner::CliType,
+    display_name: &str,
+    status: &std::process::ExitStatus,
+    cwd: &str,
+    args: &[String],
+    stderr: &str,
+    stdout: &str,
+) -> String {
+    let mut lines = vec![
+        format!("{display_name} がエラーで終了しました。"),
+        format!("exit code: {}", format_cli_exit_code(status)),
+        build_cli_execution_context(cwd, args),
+    ];
+
+    if let Some(stderr_tail) = truncate_output_tail(stderr, CLI_OUTPUT_TAIL_MAX_CHARS) {
+        lines.push(format!("stderr:\n{stderr_tail}"));
+    }
+
+    if stderr.trim().is_empty() {
+        if let Some(stdout_tail) = truncate_output_tail(stdout, CLI_OUTPUT_TAIL_MAX_CHARS) {
+            lines.push(format!("stdout:\n{stdout_tail}"));
+        }
+    }
+
+    if let Some(hint) = build_gemini_trust_hint(cli_type, stderr, stdout) {
+        lines.push(hint.to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn build_cli_json_parse_error(
+    cli_type: &crate::cli_runner::CliType,
+    display_name: &str,
+    parse_error: &str,
+    cwd: &str,
+    args: &[String],
+    stderr: &str,
+    stdout: &str,
+) -> String {
+    let mut lines = vec![
+        format!("{display_name} の出力から有効な JSON を抽出できませんでした: {parse_error}"),
+        build_cli_execution_context(cwd, args),
+    ];
+
+    if let Some(stderr_tail) = truncate_output_tail(stderr, CLI_OUTPUT_TAIL_MAX_CHARS) {
+        lines.push(format!("stderr:\n{stderr_tail}"));
+    }
+
+    if let Some(stdout_tail) = truncate_output_tail(stdout, CLI_OUTPUT_TAIL_MAX_CHARS) {
+        lines.push(format!("stdout:\n{stdout_tail}"));
+    }
+
+    if let Some(hint) = build_gemini_trust_hint(cli_type, stderr, stdout) {
+        lines.push(hint.to_string());
+    }
+
+    lines.join("\n")
 }
 
 async fn resolve_po_transport(
@@ -252,12 +333,7 @@ async fn resolve_po_transport(
                 .and_then(extract_store_string_value)
                 .unwrap_or_default(),
         );
-        let project_cwd = resolve_project_cli_cwd(app, project_id).await?;
-        let cwd = if cli_type == crate::cli_runner::CliType::Gemini {
-            resolve_gemini_cli_execution_cwd(&project_cwd)
-        } else {
-            project_cwd
-        };
+        let cwd = resolve_project_cli_cwd(app, project_id).await?;
 
         Ok(PoTransport::Cli {
             cli_type,
@@ -286,23 +362,37 @@ where
     T: DeserializeOwned,
 {
     let runner = crate::cli_runner::create_runner(cli_type)?;
-    let cli_command_path = crate::cli_detection::resolve_cli_command_path(runner.command_name())
-        .ok_or_else(|| build_cli_not_found_message(runner.as_ref()))?;
+    let detected_command_path =
+        crate::cli_detection::resolve_cli_command_path(runner.command_name())
+            .ok_or_else(|| build_cli_not_found_message(runner.as_ref()))?;
     let resolved_model = runner.resolve_model(model);
-    let args = runner.build_args(prompt, &resolved_model, cwd);
+    let mut base_args = runner.build_args(prompt, &resolved_model, cwd);
+    let response_capture_path = if runner.prefers_response_capture_file() {
+        let capture_path = create_cli_response_capture_path(cli_type, cwd);
+        runner.prepare_response_capture(&mut base_args, &capture_path)?;
+        Some(capture_path)
+    } else {
+        None
+    };
+    let (cli_command_path, args) = runner.prepare_invocation(&detected_command_path, base_args)?;
     let stdin_payload = runner.stdin_payload(prompt);
     let env_vars = runner.env_vars();
     let timeout_secs = runner.timeout_secs();
     let display_name = runner.display_name().to_string();
     let cli_not_found_message = build_cli_not_found_message(runner.as_ref());
+    let cli_type = *cli_type;
     let cwd = cwd.to_string();
+    let args_for_error = args.clone();
+    let cwd_for_error = cwd.clone();
+    let args_for_exec = args.clone();
+    let cwd_for_exec = cwd.clone();
 
     let request_started_at = current_timestamp_millis()?;
     let output = tokio::time::timeout(
         Duration::from_secs(timeout_secs),
         tauri::async_runtime::spawn_blocking(move || {
             let mut command = std::process::Command::new(&cli_command_path);
-            command.args(&args).current_dir(&cwd);
+            command.args(&args_for_exec).current_dir(&cwd_for_exec);
             for (key, value) in env_vars {
                 command.env(key, value);
             }
@@ -320,17 +410,30 @@ where
     )
     .await
     .map_err(|_| {
+        build_cli_timeout_error(&display_name, timeout_secs, &cwd_for_error, &args_for_error)
+    })?
+    .map_err(|error| {
         format!(
-            "{} の実行が {} 秒でタイムアウトしました。",
-            display_name, timeout_secs
+            "{} の実行スレッドが失敗しました: {}\n{}",
+            display_name,
+            error,
+            build_cli_execution_context(&cwd_for_error, &args_for_error)
         )
     })?
-    .map_err(|error| format!("{} の実行スレッドが失敗しました: {}", display_name, error))?
     .map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
-            cli_not_found_message.clone()
+            format!(
+                "{}\n{}",
+                cli_not_found_message,
+                build_cli_execution_context(&cwd_for_error, &args_for_error)
+            )
         } else {
-            format!("{} の実行に失敗しました: {}", display_name, error)
+            format!(
+                "{} の実行に失敗しました: {}\n{}",
+                display_name,
+                error,
+                build_cli_execution_context(&cwd_for_error, &args_for_error)
+            )
         }
     })?;
     let request_completed_at = current_timestamp_millis().unwrap_or(request_started_at);
@@ -339,22 +442,44 @@ where
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if !output.status.success() {
-        let detail = if stderr.trim().is_empty() {
-            stdout.trim()
-        } else {
-            stderr.trim()
-        };
-        return Err(if detail.is_empty() {
-            format!("{} がエラーで終了しました。", display_name)
-        } else {
-            format!("{} がエラーで終了しました: {}", display_name, detail)
-        });
+        if let Some(capture_path) = &response_capture_path {
+            let _ = std::fs::remove_file(capture_path);
+        }
+        return Err(build_cli_nonzero_exit_error(
+            &cli_type,
+            &display_name,
+            &output.status,
+            &cwd,
+            &args,
+            &stderr,
+            &stdout,
+        ));
     }
 
-    let value = parse_json_response::<T>(&stdout).map_err(|error| {
-        format!(
-            "{} の出力から有効な JSON を抽出できませんでした: {}",
-            display_name, error
+    let response_content = if let Some(capture_path) = &response_capture_path {
+        let content = std::fs::read_to_string(capture_path).map_err(|error| {
+            format!(
+                "{} の最終メッセージファイルを読み取れませんでした: {}\n{}",
+                display_name,
+                error,
+                build_cli_execution_context(&cwd, &args)
+            )
+        })?;
+        let _ = std::fs::remove_file(capture_path);
+        content
+    } else {
+        stdout.clone()
+    };
+
+    let value = parse_json_response::<T>(&response_content).map_err(|error| {
+        build_cli_json_parse_error(
+            &cli_type,
+            &display_name,
+            &error,
+            &cwd,
+            &args,
+            &stderr,
+            &response_content,
         )
     })?;
 
@@ -768,38 +893,18 @@ async fn chat_team_leader_with_tools_with_retry(
     prior_messages: &[Message],
     project_id: &str,
 ) -> Result<crate::rig_provider::LlmTextResponse, String> {
-    let max_attempts = match provider {
-        crate::rig_provider::AiProvider::Gemini => 2,
-        _ => 1,
-    };
-
-    let mut attempt = 0;
-    loop {
-        attempt += 1;
-        let chat_history = crate::rig_provider::convert_messages(prior_messages);
-        match crate::rig_provider::chat_team_leader_with_tools(
-            app,
-            provider,
-            api_key,
-            model,
-            system_prompt,
-            user_input,
-            chat_history,
-            project_id,
-        )
-        .await
-        {
-            Ok(response) => return Ok(response),
-            Err(error) => {
-                if attempt < max_attempts && is_transient_provider_unavailable(&error) {
-                    tokio::time::sleep(Duration::from_millis(800)).await;
-                    continue;
-                }
-
-                return Err(error);
-            }
-        }
-    }
+    let chat_history = crate::rig_provider::convert_messages(prior_messages);
+    crate::rig_provider::chat_team_leader_with_tools(
+        app,
+        provider,
+        api_key,
+        model,
+        system_prompt,
+        user_input,
+        chat_history,
+        project_id,
+    )
+    .await
 }
 
 fn parse_team_leader_execution_plan(content: &str) -> Result<PoAssistantExecutionPlan, String> {
@@ -821,6 +926,14 @@ async fn apply_team_leader_execution_plan(
         if operation.tasks.is_empty() {
             continue;
         }
+
+        crate::ai_tools::guard_story_creation_against_duplicates(
+            app,
+            project_id,
+            operation.target_story_id.as_deref(),
+            operation.story_title.as_deref(),
+        )
+        .await?;
 
         let story_draft = crate::db::StoryDraftInput {
             target_story_id: operation.target_story_id.clone(),
@@ -1590,12 +1703,12 @@ pub async fn chat_with_team_leader(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_backlog_counts_reply, build_team_leader_provider_unavailable_reply,
-        has_product_context_document, is_transient_provider_unavailable,
-        looks_like_generic_backlog_creation_request, select_gemini_execution_cwd,
-        ProjectBacklogCounts,
+        build_backlog_counts_reply, build_gemini_trust_hint,
+        build_team_leader_provider_unavailable_reply, has_product_context_document,
+        is_transient_provider_unavailable, looks_like_generic_backlog_creation_request,
+        truncate_output_tail, ProjectBacklogCounts,
     };
-    use std::path::PathBuf;
+    use crate::cli_runner::CliType;
 
     #[test]
     fn generic_backlog_creation_request_is_detected() {
@@ -1664,32 +1777,29 @@ mod tests {
     }
 
     #[test]
-    fn gemini_execution_cwd_keeps_project_path_when_trusted() {
-        let project_dir = tempfile::tempdir().expect("tempdir should exist");
-        let trusted_roots = vec![project_dir.path().to_path_buf()];
+    fn truncate_output_tail_keeps_only_requested_suffix() {
+        let output = truncate_output_tail("abcdef", 4).expect("tail should exist");
 
-        let resolved = select_gemini_execution_cwd(
-            project_dir.path().to_string_lossy().as_ref(),
-            &trusted_roots,
-        );
-
-        assert_eq!(resolved, project_dir.path().to_string_lossy());
+        assert!(output.contains("末尾 4 文字"));
+        assert!(output.ends_with("cdef"));
     }
 
     #[test]
-    fn gemini_execution_cwd_falls_back_to_existing_trusted_root() {
-        let project_dir = tempfile::tempdir().expect("project tempdir should exist");
-        let trusted_dir = tempfile::tempdir().expect("trusted tempdir should exist");
-        let trusted_roots = vec![
-            PathBuf::from("C:/missing-trusted-root"),
-            trusted_dir.path().to_path_buf(),
-        ];
+    fn gemini_trust_hint_is_only_returned_for_trust_related_errors() {
+        let hint =
+            build_gemini_trust_hint(&CliType::Gemini, "Project is not in a trusted folder.", "");
 
-        let resolved = select_gemini_execution_cwd(
-            project_dir.path().to_string_lossy().as_ref(),
-            &trusted_roots,
+        assert_eq!(
+            hint,
+            Some("対象プロジェクトを `~/.gemini/trustedFolders.json` に追加してください。")
         );
-
-        assert_eq!(resolved, trusted_dir.path().to_string_lossy());
+        assert_eq!(
+            build_gemini_trust_hint(&CliType::Gemini, "plain stderr", "plain stdout"),
+            None
+        );
+        assert_eq!(
+            build_gemini_trust_hint(&CliType::Claude, "Project is not in a trusted folder.", "",),
+            None
+        );
     }
 }

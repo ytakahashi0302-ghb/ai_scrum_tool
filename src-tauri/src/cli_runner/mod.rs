@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 pub mod claude;
 pub mod codex;
@@ -53,6 +54,26 @@ pub trait CliRunner: Send + Sync {
 
     fn build_args(&self, prompt: &str, model: &str, cwd: &str) -> Vec<String>;
 
+    fn prepare_response_capture(
+        &self,
+        _args: &mut Vec<String>,
+        _capture_path: &Path,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn prefers_response_capture_file(&self) -> bool {
+        false
+    }
+
+    fn prepare_invocation(
+        &self,
+        command_path: &Path,
+        args: Vec<String>,
+    ) -> Result<(PathBuf, Vec<String>), String> {
+        Ok((command_path.to_path_buf(), args))
+    }
+
     fn stdin_payload(&self, _prompt: &str) -> Option<String> {
         None
     }
@@ -87,6 +108,48 @@ pub trait CliRunner: Send + Sync {
                     .map(str::to_string)
             })
     }
+}
+
+#[cfg(windows)]
+pub(crate) fn resolve_windows_npm_cli_invocation(
+    command_path: &Path,
+    file_name_prefix: &str,
+    script_relative_segments: &[&str],
+    prefix_args: &[&str],
+) -> Result<Option<(PathBuf, Vec<String>)>, String> {
+    let Some(file_name) = command_path.file_name().and_then(|name| name.to_str()) else {
+        return Ok(None);
+    };
+    if !file_name.to_ascii_lowercase().starts_with(file_name_prefix) {
+        return Ok(None);
+    }
+
+    let Some(base_dir) = command_path.parent() else {
+        return Ok(None);
+    };
+
+    let script_path = script_relative_segments
+        .iter()
+        .fold(base_dir.to_path_buf(), |path, segment| path.join(segment));
+    if !script_path.is_file() {
+        return Ok(None);
+    }
+
+    let local_node = base_dir.join("node.exe");
+    let node_path = if local_node.is_file() {
+        local_node
+    } else {
+        crate::cli_detection::resolve_cli_command_path("node")
+            .unwrap_or_else(|| PathBuf::from("node"))
+    };
+
+    let mut args = prefix_args
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect::<Vec<_>>();
+    args.push(script_path.to_string_lossy().to_string());
+
+    Ok(Some((node_path, args)))
 }
 
 pub fn create_runner(cli_type: &CliType) -> Result<Box<dyn CliRunner>, String> {

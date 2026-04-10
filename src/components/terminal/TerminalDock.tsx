@@ -204,6 +204,8 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<XTerm | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
+    const fitTimeoutRef = useRef<number | null>(null);
+    const fitRafRef = useRef<number | null>(null);
     const safeFitRef = useRef<() => void>(() => undefined);
     const activeTaskIdRef = useRef<string | null>(null);
     const sessionsRef = useRef<Record<string, TerminalTabSession>>({});
@@ -238,6 +240,18 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
         () => sortedSessions.filter((session) => !isSessionRunning(session.status)).length,
         [sortedSessions],
     );
+
+    const cancelPendingFit = () => {
+        if (fitTimeoutRef.current !== null) {
+            window.clearTimeout(fitTimeoutRef.current);
+            fitTimeoutRef.current = null;
+        }
+
+        if (fitRafRef.current !== null) {
+            window.cancelAnimationFrame(fitRafRef.current);
+            fitRafRef.current = null;
+        }
+    };
 
     useEffect(() => {
         activeTaskIdRef.current = activeTaskId;
@@ -312,6 +326,7 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
         });
 
         const safeFit = () => {
+            cancelPendingFit();
             if (
                 terminalRef.current &&
                 xtermRef.current &&
@@ -319,11 +334,13 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
                 terminalRef.current.offsetWidth > 0 &&
                 terminalRef.current.offsetHeight > 0
             ) {
-                requestAnimationFrame(() => {
+                fitRafRef.current = window.requestAnimationFrame(() => {
+                    fitRafRef.current = null;
                     if (
                         !terminalRef.current ||
                         !xtermRef.current ||
                         !fitAddonRef.current ||
+                        !terminalRef.current.isConnected ||
                         terminalRef.current.offsetWidth === 0 ||
                         terminalRef.current.offsetHeight === 0
                     ) {
@@ -348,7 +365,10 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
         xtermRef.current = term;
         fitAddonRef.current = fitAddon;
 
-        setTimeout(safeFit, 50);
+        fitTimeoutRef.current = window.setTimeout(() => {
+            fitTimeoutRef.current = null;
+            safeFit();
+        }, 50);
 
         const resizeObserver = new ResizeObserver(() => {
             safeFit();
@@ -357,10 +377,11 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
 
         return () => {
             resizeObserver.disconnect();
-            term.dispose();
+            safeFitRef.current = () => undefined;
+            cancelPendingFit();
             xtermRef.current = null;
             fitAddonRef.current = null;
-            safeFitRef.current = () => undefined;
+            term.dispose();
         };
     }, []);
 

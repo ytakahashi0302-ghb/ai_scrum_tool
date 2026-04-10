@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
@@ -260,3 +261,80 @@ pub fn get_worktree_diff(project: &Path, branch_name: &str) -> WorktreeDiff {
     }
 }
 
+pub fn list_changed_files_in_worktree(wt_path: &Path) -> Result<Vec<String>, String> {
+    let mut files = BTreeSet::new();
+
+    let mut extend_files = |output: String| {
+        for file in output.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            files.insert(file.to_string());
+        }
+    };
+
+    extend_files(run_git(wt_path, &["diff", "--name-only", "main...HEAD"])?);
+    extend_files(run_git(wt_path, &["diff", "--name-only"])?);
+    extend_files(run_git(wt_path, &["diff", "--name-only", "--cached"])?);
+    extend_files(run_git(wt_path, &["ls-files", "--others", "--exclude-standard"])?);
+
+    Ok(files.into_iter().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn setup_test_repo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let path = dir.path();
+
+        run_git(path, &["init", "-b", "main"]).expect("git init failed");
+        run_git(path, &["config", "user.email", "test@test.com"]).expect("git config failed");
+        run_git(path, &["config", "user.name", "Test"]).expect("git config failed");
+        run_git(path, &["config", "commit.gpgsign", "false"]).expect("git config failed");
+
+        fs::write(path.join("README.md"), "# Test Project\n").expect("write failed");
+        run_git(path, &["add", "."]).expect("git add failed");
+        run_git(path, &["commit", "-m", "Initial commit"]).expect("git commit failed");
+
+        dir
+    }
+
+    #[test]
+    fn list_changed_files_in_worktree_collects_committed_and_untracked_files() {
+        let repo = setup_test_repo();
+        let wt_path = repo.path().join(".vicara-worktrees").join("task-test");
+        fs::create_dir_all(wt_path.parent().expect("parent should exist")).expect("mkdir failed");
+
+        run_git(
+            repo.path(),
+            &[
+                "worktree",
+                "add",
+                &wt_path.to_string_lossy(),
+                "-b",
+                "feature/task-test",
+                "main",
+            ],
+        )
+        .expect("worktree add failed");
+
+        fs::write(wt_path.join("committed.txt"), "committed\n").expect("write committed failed");
+        run_git(&wt_path, &["add", "committed.txt"]).expect("git add failed");
+        run_git(&wt_path, &["commit", "-m", "Add committed file"]).expect("git commit failed");
+
+        fs::write(wt_path.join("untracked.txt"), "untracked\n").expect("write untracked failed");
+
+        let changed_files =
+            list_changed_files_in_worktree(&wt_path).expect("changed files should be listed");
+
+        assert!(changed_files.contains(&"committed.txt".to_string()));
+        assert!(changed_files.contains(&"untracked.txt".to_string()));
+
+        let _ = run_git(
+            repo.path(),
+            &["worktree", "remove", &wt_path.to_string_lossy(), "--force"],
+        );
+        let _ = run_git(repo.path(), &["worktree", "prune"]);
+        let _ = run_git(repo.path(), &["branch", "-D", "feature/task-test"]);
+    }
+}

@@ -142,7 +142,7 @@ export function ScaffoldingPanel({ localPath, projectName }: ScaffoldingPanelPro
             });
             unlisteners.push(u2);
 
-            // AI スキャフォールド用（claude_cli_exit を再利用）
+            // CLI ベース AI スキャフォールド用（既存の claude_cli_* イベント名を再利用）
             const u3 = await listen<{ task_id: string; output: string }>('claude_cli_output', (event) => {
                 if (event.payload.task_id.startsWith('scaffold-ai-')) {
                     setOutput((prev) => [...prev, event.payload.output]);
@@ -281,7 +281,7 @@ export function ScaffoldingPanel({ localPath, projectName }: ScaffoldingPanelPro
                                     {detection.strategy.command} {detection.strategy.args.join(' ')}
                                 </code>
                             ) : (
-                                <span className="text-amber-700">AI自動生成（Claude CLI）</span>
+                                <span className="text-amber-700">AI自動生成（POアシスタント設定を使用）</span>
                             )}
                         </div>
                     </div>

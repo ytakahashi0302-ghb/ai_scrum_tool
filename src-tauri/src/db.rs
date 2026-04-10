@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::sqlite::SqliteRow;
+use std::collections::HashSet;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_sql::{DbInstances, DbPool};
 
@@ -465,7 +466,10 @@ pub async fn get_max_concurrent_agents_value(app: &AppHandle) -> Result<i32, Str
     Ok(settings.pop().map(|s| s.max_concurrent_agents).unwrap_or(1))
 }
 
-async fn insert_default_team_role(app: &AppHandle, seed: DefaultTeamRoleSeed) -> Result<(), String> {
+async fn insert_default_team_role(
+    app: &AppHandle,
+    seed: DefaultTeamRoleSeed,
+) -> Result<(), String> {
     let query = r#"
         INSERT OR IGNORE INTO team_roles (
             id,
@@ -1336,6 +1340,141 @@ pub async fn assign_task_to_sprint(
     execute_query(&app, query, values).await
 }
 
+const CONTEXT_SUMMARY_TEXT_LIMIT: usize = 80;
+const ARCHIVED_CONTEXT_STORY_LIMIT: usize = 8;
+const ARCHIVED_CONTEXT_TASK_LIMIT_PER_STORY: usize = 3;
+const ARCHIVED_CONTEXT_ORPHAN_TASK_LIMIT: usize = 6;
+
+fn summarize_context_value(value: Option<&str>, max_chars: usize) -> Option<String> {
+    let normalized = value
+        .unwrap_or_default()
+        .replace('\n', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let trimmed = normalized.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let char_count = trimmed.chars().count();
+    if char_count <= max_chars {
+        Some(trimmed.to_string())
+    } else {
+        Some(format!(
+            "{}...",
+            trimmed.chars().take(max_chars).collect::<String>()
+        ))
+    }
+}
+
+fn render_story_context_block(
+    stories_filtered: &[&Story],
+    tasks_all: &[Task],
+    dependencies: &[TaskDependency],
+) -> String {
+    let mut out = String::new();
+    for story in stories_filtered {
+        let desc_str =
+            summarize_context_value(story.description.as_deref(), CONTEXT_SUMMARY_TEXT_LIMIT)
+                .map(|summary| format!(": {summary}"))
+                .unwrap_or_default();
+        out.push_str(&format!(
+            "- Story [P{}][ID: {}]: {}{} (Status: {})\n",
+            story.priority, story.id, story.title, desc_str, story.status
+        ));
+
+        for task in tasks_all.iter().filter(|task| task.story_id == story.id) {
+            let status_icon = match task.status.as_str() {
+                "Done" => " ✅",
+                "In Progress" => " 🔄",
+                _ => "",
+            };
+            let blockers: Vec<&str> = dependencies
+                .iter()
+                .filter(|dependency| dependency.task_id == task.id)
+                .map(|dependency| dependency.blocked_by_task_id.as_str())
+                .collect();
+            let blocker_str = if blockers.is_empty() {
+                String::new()
+            } else {
+                format!(" [blocked_by: {}]", blockers.join(", "))
+            };
+            out.push_str(&format!(
+                "  - Task [P{}]: {} (Status: {}){}{}\n",
+                task.priority, task.title, task.status, status_icon, blocker_str
+            ));
+        }
+    }
+
+    out
+}
+
+fn render_archived_context_summary(archived_stories: &[Story], archived_tasks: &[Task]) -> String {
+    let mut out = String::new();
+    let mut rendered_story_ids = HashSet::new();
+
+    for story in archived_stories.iter().take(ARCHIVED_CONTEXT_STORY_LIMIT) {
+        rendered_story_ids.insert(story.id.clone());
+
+        let story_summary =
+            summarize_context_value(story.description.as_deref(), CONTEXT_SUMMARY_TEXT_LIMIT)
+                .map(|summary| format!(": {summary}"))
+                .unwrap_or_default();
+        let story_tasks = archived_tasks
+            .iter()
+            .filter(|task| task.story_id == story.id)
+            .collect::<Vec<_>>();
+
+        out.push_str(&format!(
+            "- 完了済み Story [P{}][ID: {}]: {}{} (Status: {})\n",
+            story.priority, story.id, story.title, story_summary, story.status
+        ));
+
+        for task in story_tasks
+            .iter()
+            .take(ARCHIVED_CONTEXT_TASK_LIMIT_PER_STORY)
+        {
+            let task_summary =
+                summarize_context_value(task.description.as_deref(), CONTEXT_SUMMARY_TEXT_LIMIT)
+                    .map(|summary| format!(": {summary}"))
+                    .unwrap_or_default();
+            out.push_str(&format!(
+                "  - 完了済み Task [P{}]: {}{}\n",
+                task.priority, task.title, task_summary
+            ));
+        }
+
+        if story_tasks.len() > ARCHIVED_CONTEXT_TASK_LIMIT_PER_STORY {
+            out.push_str(&format!(
+                "  - 他 {} 件の完了済み Task\n",
+                story_tasks.len() - ARCHIVED_CONTEXT_TASK_LIMIT_PER_STORY
+            ));
+        }
+    }
+
+    let orphan_tasks = archived_tasks
+        .iter()
+        .filter(|task| !rendered_story_ids.contains(&task.story_id))
+        .take(ARCHIVED_CONTEXT_ORPHAN_TASK_LIMIT)
+        .collect::<Vec<_>>();
+    if !orphan_tasks.is_empty() {
+        out.push_str("- 完了済み Task（関連 Story は現行 backlog 外）:\n");
+        for task in orphan_tasks {
+            let task_summary =
+                summarize_context_value(task.description.as_deref(), CONTEXT_SUMMARY_TEXT_LIMIT)
+                    .map(|summary| format!(": {summary}"))
+                    .unwrap_or_default();
+            out.push_str(&format!(
+                "  - [Story ID: {}][P{}] {}{}\n",
+                task.story_id, task.priority, task.title, task_summary
+            ));
+        }
+    }
+
+    out
+}
+
 pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<String, String> {
     let query_project = "SELECT * FROM projects WHERE id = ?";
     let projects = select_query::<Project>(
@@ -1403,12 +1542,31 @@ pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<
     )
     .await?;
 
-    if stories.is_empty() && tasks.is_empty() && md.is_empty() {
+    let archived_stories = select_query::<Story>(
+        app,
+        "SELECT * FROM stories WHERE archived = 1 AND project_id = ? ORDER BY updated_at DESC, created_at DESC",
+        vec![serde_json::to_value(project_id).unwrap()],
+    )
+    .await?;
+
+    let archived_tasks = select_query::<Task>(
+        app,
+        "SELECT * FROM tasks WHERE archived = 1 AND project_id = ? ORDER BY updated_at DESC, created_at DESC",
+        vec![serde_json::to_value(project_id).unwrap()],
+    )
+    .await?;
+
+    if stories.is_empty()
+        && tasks.is_empty()
+        && archived_stories.is_empty()
+        && archived_tasks.is_empty()
+        && md.is_empty()
+    {
         return Ok(String::new());
     }
 
     // タスク依存関係の取得
-    let query_deps = "SELECT td.task_id, td.blocked_by_task_id FROM task_dependencies td JOIN tasks t ON td.task_id = t.id WHERE t.project_id = ?";
+    let query_deps = "SELECT td.task_id, td.blocked_by_task_id FROM task_dependencies td JOIN tasks t ON td.task_id = t.id WHERE t.project_id = ? AND t.archived = 0";
     let dependencies = select_query::<TaskDependency>(
         app,
         query_deps,
@@ -1417,60 +1575,15 @@ pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<
     .await
     .unwrap_or_default();
 
-    // ストーリーとタスクの描画ヘルパー
-    let render_stories = |stories_filtered: Vec<&Story>, tasks_all: &[Task]| -> String {
-        let mut out = String::new();
-        for story in stories_filtered {
-            let desc = story
-                .description
-                .clone()
-                .unwrap_or_default()
-                .replace('\n', " ");
-            let short_desc = if desc.chars().count() > 50 {
-                format!("{}...", desc.chars().take(50).collect::<String>())
-            } else {
-                desc
-            };
-            let desc_str = if short_desc.is_empty() {
-                String::new()
-            } else {
-                format!(": {}", short_desc)
-            };
-            out.push_str(&format!(
-                "- Story [P{}][ID: {}]: {}{} (Status: {})\n",
-                story.priority, story.id, story.title, desc_str, story.status
-            ));
-
-            for task in tasks_all.iter().filter(|t| t.story_id == story.id) {
-                let status_icon = match task.status.as_str() {
-                    "Done" => " ✅",
-                    "In Progress" => " 🔄",
-                    _ => "",
-                };
-                let blockers: Vec<&str> = dependencies
-                    .iter()
-                    .filter(|d| d.task_id == task.id)
-                    .map(|d| d.blocked_by_task_id.as_str())
-                    .collect();
-                let blocker_str = if blockers.is_empty() {
-                    String::new()
-                } else {
-                    format!(" [blocked_by: {}]", blockers.join(", "))
-                };
-                out.push_str(&format!(
-                    "  - Task [P{}]: {} (Status: {}){}{}\n",
-                    task.priority, task.title, task.status, status_icon, blocker_str
-                ));
-            }
-        }
-        out
-    };
-
     // 4. プロダクトバックログ（sprint_id IS NULL）
     let backlog_stories: Vec<&Story> = stories.iter().filter(|s| s.sprint_id.is_none()).collect();
     if !backlog_stories.is_empty() {
         md.push_str("\n【プロダクトバックログ（未着手）】\n");
-        md.push_str(&render_stories(backlog_stories, &tasks));
+        md.push_str(&render_story_context_block(
+            &backlog_stories,
+            &tasks,
+            &dependencies,
+        ));
     }
 
     // 5. アクティブスプリント
@@ -1484,7 +1597,11 @@ pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<
                 "\n【アクティブスプリント（進行中）】Sprint ID: {}\n",
                 active_id
             ));
-            md.push_str(&render_stories(active_stories, &tasks));
+            md.push_str(&render_story_context_block(
+                &active_stories,
+                &tasks,
+                &dependencies,
+            ));
         }
     }
 
@@ -1499,8 +1616,18 @@ pub async fn build_project_context(app: &AppHandle, project_id: &str) -> Result<
                 "\n【計画中スプリント (Planned)】Sprint ID: {}\n",
                 planned_id
             ));
-            md.push_str(&render_stories(planned_stories, &tasks));
+            md.push_str(&render_story_context_block(
+                &planned_stories,
+                &tasks,
+                &dependencies,
+            ));
         }
+    }
+
+    let archived_summary = render_archived_context_summary(&archived_stories, &archived_tasks);
+    if !archived_summary.trim().is_empty() {
+        md.push_str("\n【完了済み実装サマリ（アーカイブ済み）】\n");
+        md.push_str(&archived_summary);
     }
 
     Ok(md)
@@ -1608,4 +1735,68 @@ pub async fn insert_story_with_tasks(
     tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(story_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{render_archived_context_summary, summarize_context_value, Story, Task};
+
+    fn sample_story(id: &str, title: &str, archived: bool) -> Story {
+        Story {
+            id: id.to_string(),
+            project_id: "project-1".to_string(),
+            title: title.to_string(),
+            description: Some("既存実装の要約".to_string()),
+            acceptance_criteria: None,
+            status: if archived {
+                "Done".to_string()
+            } else {
+                "Backlog".to_string()
+            },
+            sprint_id: None,
+            archived,
+            created_at: "2026-04-10T00:00:00Z".to_string(),
+            updated_at: "2026-04-10T00:00:00Z".to_string(),
+            priority: 2,
+        }
+    }
+
+    fn sample_task(story_id: &str, title: &str) -> Task {
+        Task {
+            id: format!("task-{title}"),
+            project_id: "project-1".to_string(),
+            story_id: story_id.to_string(),
+            title: title.to_string(),
+            description: Some("完了した作業の詳細".to_string()),
+            status: "Done".to_string(),
+            sprint_id: None,
+            archived: true,
+            assignee_type: None,
+            assigned_role_id: None,
+            created_at: "2026-04-10T00:00:00Z".to_string(),
+            updated_at: "2026-04-10T00:00:00Z".to_string(),
+            priority: 3,
+        }
+    }
+
+    #[test]
+    fn summarize_context_value_collapses_whitespace() {
+        assert_eq!(
+            summarize_context_value(Some("line1\n line2"), 80).as_deref(),
+            Some("line1 line2")
+        );
+    }
+
+    #[test]
+    fn archived_context_summary_includes_completed_story_and_tasks() {
+        let summary = render_archived_context_summary(
+            &[sample_story("story-1", "通知設定画面を追加", true)],
+            &[sample_task("story-1", "設定保存APIを実装")],
+        );
+
+        assert!(summary.contains("完了済み Story"));
+        assert!(summary.contains("通知設定画面を追加"));
+        assert!(summary.contains("完了済み Task"));
+        assert!(summary.contains("設定保存APIを実装"));
+    }
 }
