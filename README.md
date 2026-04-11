@@ -1,262 +1,128 @@
-# vicara v1.2.0
+# vicara
 
-> **ソロ開発者が複数のAIを“チーム”として率い、熟慮と意思決定を中心に据えて実装と検証を前へ進めるためのローカルファースト開発環境。**
+<p align="center">
+  <img src="./public/logos/banner.png" alt="vicara banner" width="800" />
+</p>
 
-vicara は、AI にすべてを委ねるためのツールではありません。  
-人間がプロダクトオーナーとして「何を作るか」「どの順序で進むか」を決め、AI はその意思決定に従って実装・調査・検証を加速する。その関係を、スクラムという共通言語で自然に扱えるようにしたデスクトップアプリです。
+<p align="center">
+  <strong>Human-led AI team orchestration for solo builders.</strong>
+</p>
 
-ソロ開発者が迷いなく最初の一歩を踏み出し、複数のAIを“チーム”として率いながら、ブラックボックスに飲み込まれず、正しい道筋を与えて前進する。  
-アイデアの壁打ち、プロジェクト文脈の整理、スプリント計画、ロール分担、Claude Code CLI による実装実行までをひとつのUIに統合し、v1.2.0 では **Git Worktree による安全な AI 開発隔離、Review フロー、LLM Observability、リサイズ可能な 3 ペイン UI** を備えた、より実運用向けのバージョンへ進化しました。
-
-![vicara overview](./docs/images/vicara-overview-v1_2_0.png)
-
-*Kanban、Terminal Dock、POアシスタントをひとつの画面で扱える vicara のメインUI。*
-
----
-
-## v1.2.0 の見どころ
-
-- **マルチエージェント並行稼働**: 複数タスクにロールを割り当てると、Claude Code CLI ベースの Dev Agent たちが同時に走り出します。
-- **POアシスタント**: バックログ優先度、進捗、要求整理を横断的に支援するサイドバー型の意思決定支援AIを搭載。
-- **Inception Deck + Scaffold**: AIとの壁打ちから `PRODUCT_CONTEXT.md`、`ARCHITECTURE.md`、`Rule.md`、`AGENTS.md`、`.claude/settings.json` まで一気通貫で整備。
-- **Terminal Dock**: 画面下部の VS Code ライクなタブ型ターミナルで、各エージェントのログ、状態、完了をリアルタイムに追跡。
-- **Git Worktree Review Flow**: AI 実装は `main` 直下ではなく task 単位の Worktree で実行され、プレビュー確認と 1-Click マージで安全にレビューできます。
-- **LLM Observability**: プロジェクト累計 / スプリント累計の token と概算コストをヘッダーと設定画面から確認できます。
-- **Resizable 3-Pane UX**: カンバン、Terminal Dock、POアシスタントの幅と高さをドラッグで調整できます。
-- **シームレスなタイマー連動**: スプリント開始や AI 実行の瞬間にタイマーが自動で RUNNING になり、計測漏れを防ぎます。
-- **完全ローカル運用**: プロジェクト情報はローカルに保持され、開発対象ディレクトリも自分のマシン上で直接扱えます。
+<p align="center">
+  <a href="./README_ja.md">🇯🇵 日本語</a>
+</p>
 
 ---
 
-## なぜ「スクラム」なのか
+## What is vicara?
 
-スクラムは人間が長年かけて磨いてきた開発プロセスです。  
-vicara では、**スクラムを人間とAIの共通言語**として採用しています。
+**vicara** is a local-first desktop app that lets a solo developer lead multiple AIs as a "team", putting deliberation and decision-making at the center while accelerating implementation and verification.
 
-- **人間側**: 「今は Inception なのか、Planning なのか、Execution なのか」が明確なので、AIに任せても状況を把握しやすい
-- **AI側**: 状態遷移と責務が定義されることで、曖昧な依頼でも次にやるべきことを判断しやすい
-- **チーム全体**: バックログ、スプリント、レビューという枠組みがあるため、ソロ開発でも意思決定と改善を継続しやすい
+vicara is not a tool that delegates everything to AI.
+The human acts as the **Product Owner** — deciding *what to build* and *in what order* — while AIs follow those decisions to accelerate implementation, research, and verification. This relationship is naturally managed through the common language of **Scrum**.
 
-「全部自動でやるAI」ではなく、**人間がプロダクトオーナーとして主導し、AIがチームとして働く**ことがこのプロダクトの思想です。
+> Start your first step without hesitation, lead multiple AIs as a team, stay in control without being swallowed by a black box, and move forward on the right path.
+
+vicara integrates idea brainstorming, project context organization, sprint planning, role assignment, and implementation execution via Claude Code CLI into a single UI.
+
+![vicara overview](./docs/images/vicara-overview-v2_0_0.png)
 
 ---
 
-## セットアップと API 導入
+## Key Features
 
-### 必要環境
+| Feature | Description |
+|---------|-------------|
+| **PO Assistant** | Sidebar AI that supports Product Owner decisions — priority sorting, requirements clarification, progress judgment |
+| **Dev Agent** | Implementation AI that executes tasks via coding agent CLIs (Claude Code / Gemini / Codex) based on role templates |
+| **Inception Deck** | Build `PRODUCT_CONTEXT.md`, `ARCHITECTURE.md`, `Rule.md` through AI-driven brainstorming |
+| **Scaffold** | Tech stack detection, initial directory setup, `AGENTS.md` / `.claude/settings.json` generation |
+| **AI Task Decomposition** | Break down User Stories into actionable task granularity |
+| **Interactive Kanban** | Visual management of backlog, sprints, dependencies, and progress |
+| **Terminal Dock** | VS Code-like tabbed terminal visualizing multiple AI execution states |
+| **Multi-Agent Execution** | Launch coding agent CLIs per role, implementing tasks in parallel |
+| **Git Worktree Review** | Isolated environments per task, with preview, approve-merge, and conflict resolution in one flow |
+| **LLM Observability** | Visualize token usage and estimated costs per project / sprint |
+| **Resizable 3-Pane UI** | Adjust Kanban / Terminal / PO Assistant layout to your workflow |
+| **Local-First** | Safe and transparent operation built on local directories and local DB |
 
-- Node.js / npm
-- Rust / Cargo
-- **Claude Code CLI**
-- **Anthropic API Key**
-- **Gemini API Key**
+---
 
-### 1. Claude Code CLI を導入する
+## Getting Started
 
-vicara のマルチエージェント実行と Scaffold の中核は **Claude Code CLI** です。  
-まずはグローバルインストールとログインを必ず済ませてください。
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) (LTS recommended)
+- [Rust](https://www.rust-lang.org/tools/install) / Cargo
+- At least one coding agent CLI: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) / [Gemini CLI](https://github.com/google-gemini/gemini-cli) / [Codex CLI](https://github.com/openai/codex)
+
+### Installation & Launch
 
 ```bash
-npm install -g @anthropic-ai/claude-code
-claude login
-```
-
-このセットアップが完了していないと、`開発を実行` と Scaffold の体験が成立しません。
-
-### 2. 依存関係をインストールしてアプリを起動する
-
-```bash
+git clone https://github.com/your-username/vicara.git
+cd vicara
 npm install
 npm run tauri -- dev
 ```
 
-### 3. API キーをアプリに登録する
+### LLM Setup
 
-アプリ起動後、ヘッダー右上の **`⚙️ 設定`** を開き、`AI設定` タブから以下を登録してください。
+vicara supports multiple LLM providers — Claude API, Gemini API, OpenAI API, and Ollama.
+For detailed setup instructions, see:
 
-- `Anthropic API Key`
-- `Gemini API Key`
-- 必要に応じて各プロバイダーの利用モデル
+👉 **[LLM Setup Guide](./docs/llm-setup.md)** | [日本語版](./docs/llm-setup_ja.md)
 
-POアシスタント、AIによる壁打ち、タスク分解、モデル取得などの体験を安定して使うため、**Anthropic / Gemini の両方を登録しておく構成を推奨**します。
+### Set Working Directory
 
-### 4. 開発対象のローカルディレクトリを設定する
+From the project area on the left side of the header, select a workspace and set the target directory with the folder button.
+This local path becomes the working directory for each Dev Agent.
 
-ヘッダー左側のプロジェクト領域からワークスペースを選択し、フォルダボタンで対象ディレクトリを設定します。  
-このローカルパスが、Claude Code CLI と各 Dev Agent の実作業ディレクトリになります。
+---
 
-### 開発コマンド
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19, TypeScript, Tailwind CSS v4 |
+| Backend | Tauri v2 (Rust) |
+| Database | SQLite (local) |
+| State Management | React Context / Hooks |
+| AI | Claude Code CLI, Gemini CLI, Codex CLI, Anthropic API, Gemini API, OpenAI API, Ollama |
+| Terminal | xterm.js |
+| UI Icons | Lucide React |
+
+---
+
+## Development
 
 ```bash
-npm run dev             # Vite 開発サーバー
-npm run build           # フロントエンドビルド
+npm run dev             # Vite dev server
+npm run build           # Frontend build
 npm run lint            # ESLint
-npm run tauri -- dev    # Tauri アプリを開発起動
-npm run tauri -- build  # Tauri アプリを本番ビルド
+npm run tauri -- dev    # Launch Tauri app (dev)
+npm run tauri -- build  # Production build
 ```
 
----
-
-## 使い方: 開発ワークフロー
-
-### Step 1. Team Settings
-
-ヘッダーの **`⚙️ 設定` → `チーム設定`** で、AIチームの型紙を定義します。
-
-- ロール名を定義する
-- 各ロールに Claude モデルを割り当てる
-- システムプロンプトで責務やレビュー観点を与える
-- **最大並行稼働数** を `1〜5` の範囲で設定する
-
-ここで作ったロールテンプレートが、実行時に Dev Agent の人格と担当範囲になります。  
-vicara では、`POアシスタント` が意思決定支援を担い、各 `Dev Agent` が実装を担当する役割分担を基本形としています。
-
-### Step 2. Inception Deck
-
-`Inception Deck` ビューでは、AI と対話しながらプロジェクトの文脈を育てます。
-
-- Phase 1: プロダクトの価値とターゲット整理
-- Phase 2: Not List の明確化
-- Phase 3: 技術スタックとアーキテクチャ制約の整理
-- Phase 4: プロジェクト固有ルールの整理
-
-対話内容は右ペインにライブ反映され、最終的に以下のファイルへ落ちます。
-
-- `PRODUCT_CONTEXT.md`
-- `ARCHITECTURE.md`
-- `Rule.md`
-
-つまり Inception Deck は、AI と壁打ちしながらプロジェクトコンテキストを資産化するための Sprint 0 です。
-
-### Step 3. Scaffold
-
-ローカルディレクトリを設定すると、ヘッダーから **`Scaffold`** を実行できます。  
-また、Inception Deck の Phase 5 からも同じ流れに入れます。
-
-Scaffold では技術スタックを検出し、ボタン一発で初期足場を構築します。
-
-- 既存スタックに合う CLI Scaffold を試行
-- 必要に応じて Claude Code CLI による AI Scaffold を実行
-- `AGENTS.md`
-- `.claude/settings.json`
-
-これにより、以降の自律実行に必要なAIコンテキストと作業環境がそろいます。
-
-### Step 4. Planning
-
-`プロダクトバックログ` でストーリーを整理し、次のスプリントを作成します。
-
-- User Story を登録する
-- 優先度と受け入れ条件を整える
-- スプリントを作成し、対象ストーリーを割り当てる
-- **AI によるタスク自動分解** を起点に、実行可能な粒度へタスクを整える
-
-vicara の Planning は、単なるタスク管理ではありません。  
-POアシスタント や分解フローを通して、ソロ開発者が迷いやすい「何から着手するか」「どこまで切るか」を前倒しで支援します。
-
-### Step 5. Multi-Agent Execution
-
-ここが vicara の主役です。
-
-各タスクに担当ロールを割り当て、**`開発を実行 (Launch Claude)`** を押すと、Claude Code CLI を背後で起動した複数の Dev Agent が並行して開発を始めます。
-
-- 画面下部の **Terminal Dock** にセッションごとのタブが追加される
-- タブ名は `[Role] Task` 形式で表示される
-- 各タブにログが流れ、`Starting / Running / Completed / Failed / Killed` を追跡できる
-- **最大並行稼働数** の範囲で、複数タスクを同時に前進させられる
-- 必要なら実行中タスクを Dock 上から停止できる
-
-体験としては、ソロ開発なのに画面の下で複数のAIエンジニアが各自の端末を持って作業している感覚に近く、vicara が最もユニークな価値を発揮する瞬間です。
-
-### Step 6. Review & Done
-
-v1.2.0 では、AI が完了したタスクは `Review` 列へ移動し、安全な確認フローに入ります。
-
-- `Review` 列で対象タスクを確認する
-- 必要に応じてプレビューを起動する
-- 問題なければ **承認してマージ** で `main` に取り込む
-- コンフリクト時は AI 再実行 / 手動解決 / 破棄を選べる
-- ボード上の進捗と依存関係を見直す
-- 必要に応じてカンバン上でステータスを調整する
-- ストーリー完了後、スプリントを締める
-
-実装そのものはAIに任せつつ、**最終判断と品質の責任は人間が持つ**。この分担が vicara の基本姿勢です。
+For design guidelines and development rules, see [Rule.md](./Rule.md).
+For architecture overview, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
 
-## 主な機能
+## Origin of the Name
 
-| 機能 | 説明 |
-|------|------|
-| **POアシスタント** | プロダクトオーナーの意思決定を補佐し、優先順位整理・要求具体化・進行判断を支援するサイドバー型AI |
-| **Dev Agent** | ロールテンプレートに基づいて Claude Code CLI を実行し、タスク実装と検証を進める実装担当AI |
-| **Inception Deck** | AIとの壁打ちを通して `PRODUCT_CONTEXT.md`、`ARCHITECTURE.md`、`Rule.md` を整備 |
-| **Scaffold** | 技術スタック検出、初期ディレクトリ構築、`AGENT.md` / `.claude/settings.json` 生成 |
-| **AIタスク分解** | User Story を起点に実行しやすいタスク粒度へ落とし込む支援 |
-| **インタラクティブカンバン** | バックログ、スプリント、依存関係、進捗を視覚的に管理 |
-| **Terminal Dock** | VS Code ライクなタブ型ターミナルで複数AIの実行状態を可視化 |
-| **マルチエージェント実行** | ロールごとに Claude Code CLI を起動し、タスクを並列実装 |
-| **Git Worktree Review** | task 単位の隔離環境、プレビュー、承認マージ、競合対応をひとつの流れに統合 |
-| **LLM Observability** | token 使用量と概算コストを project / sprint 単位で可視化 |
-| **Resizable 3-Pane UI** | Kanban / Terminal / POアシスタント のレイアウトを作業スタイルに合わせて調整 |
-| **ローカルファースト** | ローカルディレクトリとローカルDBを前提にした安全で透明な運用 |
+The name has two origins:
+
+1. **Bikara (毘羯羅)** — one of the Twelve Heavenly Generals in Buddhist mythology, symbolizing the beginning (the Rat in the Chinese zodiac) and radiating "universal illumination" to guide the world toward the right start.
+2. **Vicāra** — a Sanskrit/English word meaning "thought, deliberation, investigation, planning."
+
+vicara is designed at the intersection of these two meanings.
 
 ---
 
-## 類似ツールとの違い
+## License
 
-| | Devin / Claude Code 単体 | MetaGPT | **vicara** |
-|---|---|---|---|
-| 人間の関与 | 最初と最後が中心 | ほぼなし | **壁打ち・計画・レビューで継続関与** |
-| 実行単位 | 単体エージェント寄り | 全自動フロー | **ロール分担されたAIチーム** |
-| 可視性 | CLI / ログ中心 | ブラックボックス寄り | **カンバン + Terminal Dock で可視化** |
-| 開発プロセス | 個別タスク実行 | 自動組織 | **スクラムを軸にした継続運用** |
-| データ管理 | サービス依存が多い | クラウド寄り | **完全ローカル** |
-| 対象 | 汎用 | 研究・自動化 | **ソロ開発者が率いるAI開発チーム** |
+This project is licensed under the [Apache License 2.0](./LICENSE).
 
 ---
 
-## 技術スタック
-
-| レイヤー | 技術 |
-|----------|------|
-| フロントエンド | React 19, TypeScript, Tailwind CSS v4 |
-| バックエンド | Tauri v2 (Rust) |
-| データベース | SQLite（ローカル） |
-| 状態管理 | React Context / Hooks |
-| AI | Anthropic API, Gemini API, Claude Code CLI |
-| ターミナル | xterm.js |
-| UIアイコン | Lucide React |
-
----
-
-## 今後のロードマップ
-
-- **AIによるスプリントの振り返り（レトロスペクティブ）**
-- **AI同士の連携・レビュー機能**
-- **タスク分解から実装割り当てまでの自動オーケストレーション強化**
-- **各ロールの学習履歴を活かした、より賢いチーム編成**
-
-v1.2.0 は、単に AI が走るだけの段階を越え、**安全なレビュー・可視化・運用性** まで踏み込んだ最初の安定アップデートです。
-
----
-
-## 開発ガイドライン
-
-設計方針や開発ルールは [Rule.md](./Rule.md) を参照してください。  
-アーキテクチャ全体の考え方は [ARCHITECTURE.md](./ARCHITECTURE.md) に整理されています。
-
----
-
-## 名前の由来
-
-この名前には二つの由来があります。  
-ひとつは、十二神将の **毘羯羅（ビカラ）大将**。干支の始まりである子を象徴し、「光明普照」の徳によって世界を照らし、正しい始まりへ導く存在です。  
-もうひとつは、英語 / サンスクリット語の **vicara** が持つ「思考・熟慮・調査・計画」という意味です。
-
-vicara は、この二つの意味を重ね合わせて設計されています。
-
----
-
-*vicara v1.2.0 - Human-led AI team orchestration for solo builders.*
-
+*vicara v2.0.0 — Human-led AI team orchestration for solo builders.*
