@@ -1,6 +1,6 @@
 use super::{CliRunner, CliType};
 
-pub const DEFAULT_MODEL: &str = "claude-sonnet-4-20250514";
+pub const DEFAULT_MODEL: &str = "claude-haiku-4-5";
 pub const INSTALL_HINT: &str = "npm install -g @anthropic-ai/claude-code";
 
 #[derive(Debug, Clone, Copy, Default)]

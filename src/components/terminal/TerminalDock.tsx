@@ -403,9 +403,6 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
 
     useEffect(() => {
         let cancelled = false;
-        let unlistenStarted: (() => void) | null = null;
-        let unlistenOutput: (() => void) | null = null;
-        let unlistenExit: (() => void) | null = null;
 
         const restoreSessions = async () => {
             try {
@@ -443,7 +440,20 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
         };
 
         const setupListeners = async () => {
-            const us = await listen<ActiveClaudeSession>('claude_cli_started', (event) => {
+            const nextUnlisteners: Array<() => void> = [];
+            const register = async <T,>(
+                eventName: string,
+                handler: (event: { payload: T }) => void | Promise<void>,
+            ) => {
+                const unlisten = await listen<T>(eventName, handler);
+                if (cancelled) {
+                    unlisten();
+                    return;
+                }
+                nextUnlisteners.push(unlisten);
+            };
+
+            await register<ActiveClaudeSession>('claude_cli_started', (event) => {
                 setSessions((prev) => {
                     const existing = prev[event.payload.task_id];
                     const created = createSessionFromActiveSession(event.payload);
@@ -464,13 +474,8 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
                 });
                 setActiveTaskId(event.payload.task_id);
             });
-            if (cancelled) {
-                us();
-                return;
-            }
-            unlistenStarted = us;
 
-            const uo = await listen<ClaudeOutputPayload>('claude_cli_output', (event) => {
+            await register<ClaudeOutputPayload>('claude_cli_output', (event) => {
                 setSessions((prev) => {
                     const existing = prev[event.payload.task_id] ?? createPlaceholderSession(event.payload.task_id);
                     const withHeader = existing.logs
@@ -490,13 +495,8 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
                     xtermRef.current.write(event.payload.output);
                 }
             });
-            if (cancelled) {
-                uo();
-                return;
-            }
-            unlistenOutput = uo;
 
-            const ue = await listen<ClaudeExitPayload>('claude_cli_exit', async (event) => {
+            await register<ClaudeExitPayload>('claude_cli_exit', async (event) => {
                 const exitLine = createExitLine(event.payload.success, event.payload.reason);
                 const nextStatus = mapExitStatus(event.payload.success, event.payload.reason);
 
@@ -536,11 +536,13 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
                     toast.error(`プロセス終了: ${event.payload.reason}`);
                 }
             });
+
             if (cancelled) {
-                ue();
+                nextUnlisteners.forEach((unlisten) => unlisten());
                 return;
             }
-            unlistenExit = ue;
+
+            return nextUnlisteners;
         };
 
         const handleFrontendError = (e: Event) => {
@@ -581,13 +583,13 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({ isMinimized, onToggl
 
         window.addEventListener('claude_error', handleFrontendError);
         restoreSessions();
-        setupListeners();
+        const unlistenPromise = setupListeners();
 
         return () => {
             cancelled = true;
-            if (unlistenStarted) unlistenStarted();
-            if (unlistenOutput) unlistenOutput();
-            if (unlistenExit) unlistenExit();
+            void unlistenPromise.then((unlisteners) => {
+                unlisteners?.forEach((unlisten) => unlisten());
+            });
             window.removeEventListener('claude_error', handleFrontendError);
         };
     }, [updateTaskStatus]);

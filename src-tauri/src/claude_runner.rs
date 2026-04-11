@@ -8,6 +8,7 @@ use std::fs;
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,12 @@ enum AgentSessionEntry {
 trait ProcessKiller {
     fn kill(&mut self);
     fn wait_success(&mut self) -> bool;
+}
+
+#[derive(Clone)]
+struct RecentOutputChunk {
+    normalized: String,
+    emitted_at: Instant,
 }
 
 // --- Windows: std::process::Child ラッパー ---
@@ -372,6 +379,55 @@ fn build_cli_not_found_message(runner: &dyn CliRunner) -> String {
         runner.command_name(),
         runner.install_hint()
     )
+}
+
+fn normalize_output_chunk_for_dedup(output: &str) -> Option<String> {
+    let normalized = output
+        .replace("\r\n", "\n")
+        .trim_matches(|ch| ch == '\r' || ch == '\n')
+        .trim()
+        .to_string();
+
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn should_suppress_duplicate_output_at(
+    recent_output: &mut Option<RecentOutputChunk>,
+    output: &str,
+    now: Instant,
+) -> bool {
+    let Some(normalized) = normalize_output_chunk_for_dedup(output) else {
+        return false;
+    };
+
+    if let Some(previous) = recent_output.as_ref() {
+        if previous.normalized == normalized
+            && now.duration_since(previous.emitted_at) <= Duration::from_millis(750)
+        {
+            return true;
+        }
+    }
+
+    *recent_output = Some(RecentOutputChunk {
+        normalized,
+        emitted_at: now,
+    });
+    false
+}
+
+fn should_suppress_duplicate_output(
+    recent_output: &Arc<Mutex<Option<RecentOutputChunk>>>,
+    output: &str,
+) -> bool {
+    let Ok(mut guard) = recent_output.lock() else {
+        return false;
+    };
+
+    should_suppress_duplicate_output_at(&mut guard, output, Instant::now())
 }
 
 fn resolve_cli_command_path(runner: &dyn CliRunner) -> Result<PathBuf, String> {
@@ -755,6 +811,7 @@ fn spawn_agent_process(
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
+    let recent_output = Arc::new(Mutex::new(None::<RecentOutputChunk>));
 
     let mut running_info = session_info.clone();
     running_info.status = "Running".to_string();
@@ -768,6 +825,7 @@ fn spawn_agent_process(
 
     let app_out = app_handle.clone();
     let tid_out = session_info.task_id.clone();
+    let recent_output_out = recent_output.clone();
     if let Some(mut reader) = stdout {
         std::thread::spawn(move || {
             let mut buf = [0u8; 1024];
@@ -779,6 +837,9 @@ fn spawn_agent_process(
                     }
                     Ok(n) => {
                         let output = String::from_utf8_lossy(&buf[..n]).to_string();
+                        if should_suppress_duplicate_output(&recent_output_out, &output) {
+                            continue;
+                        }
                         let _ = app_out.emit(
                             "claude_cli_output",
                             ClaudeOutputPayload {
@@ -798,6 +859,7 @@ fn spawn_agent_process(
 
     let app_err = app_handle.clone();
     let tid_err = session_info.task_id.clone();
+    let recent_output_err = recent_output;
     if let Some(mut reader) = stderr {
         std::thread::spawn(move || {
             let mut buf = [0u8; 1024];
@@ -806,6 +868,9 @@ fn spawn_agent_process(
                     Ok(0) => break,
                     Ok(n) => {
                         let output = String::from_utf8_lossy(&buf[..n]).to_string();
+                        if should_suppress_duplicate_output(&recent_output_err, &output) {
+                            continue;
+                        }
                         let _ = app_err.emit(
                             "claude_cli_output",
                             ClaudeOutputPayload {
@@ -1189,9 +1254,12 @@ pub async fn kill_claude_process(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_meta_output_file, prepare_cli_invocation};
+    use super::{
+        is_meta_output_file, prepare_cli_invocation, should_suppress_duplicate_output_at,
+    };
     use crate::cli_runner::{claude::ClaudeRunner, codex::CodexRunner, CliRunner};
     use std::path::Path;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn prepare_cli_invocation_keeps_argument_prompt_for_claude_runner() {
@@ -1240,5 +1308,27 @@ mod tests {
         assert!(is_meta_output_file("IMPLEMENTATION_PLAN.md"));
         assert!(!is_meta_output_file("docs/API_SPEC.md"));
         assert!(!is_meta_output_file("src/App.tsx"));
+    }
+
+    #[test]
+    fn duplicate_output_is_suppressed_within_short_window() {
+        let now = Instant::now();
+        let mut recent_output = None;
+
+        assert!(!should_suppress_duplicate_output_at(
+            &mut recent_output,
+            "YOLO mode is enabled.\r\n",
+            now,
+        ));
+        assert!(should_suppress_duplicate_output_at(
+            &mut recent_output,
+            "YOLO mode is enabled.\n",
+            now + Duration::from_millis(100),
+        ));
+        assert!(!should_suppress_duplicate_output_at(
+            &mut recent_output,
+            "YOLO mode is enabled.\n",
+            now + Duration::from_secs(2),
+        ));
     }
 }

@@ -32,9 +32,9 @@ type InstalledCliMap = Record<SupportedCliType, boolean>;
 
 const DEFAULT_OLLAMA_ENDPOINT = 'http://localhost:11434';
 const DEFAULT_PO_ASSISTANT_CLI_MODELS: Record<SupportedCliType, string> = {
-    claude: 'claude-sonnet-4-20250514',
-    gemini: 'gemini-2.5-pro',
-    codex: 'o3',
+    claude: 'claude-haiku-4-5',
+    gemini: 'gemini-3-flash-preview',
+    codex: 'gpt-5.4-mini',
 };
 
 const DEFAULT_TEAM_CONFIGURATION: TeamConfiguration = {
@@ -401,12 +401,12 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
             );
 
             setAnthropicModel(
-                normalizeStoredStringValue(await store.get('anthropic-model')) ?? 'claude-3-5-sonnet-latest',
+                normalizeStoredStringValue(await store.get('anthropic-model')) ?? 'claude-haiku-4-5',
             );
             setGeminiModel(
-                normalizeStoredStringValue(await store.get('gemini-model')) ?? 'gemini-2.5-flash',
+                normalizeStoredStringValue(await store.get('gemini-model')) ?? 'gemini-3-flash-preview',
             );
-            setOpenaiModel(normalizeStoredStringValue(await store.get('openai-model')) ?? 'gpt-4o');
+            setOpenaiModel(normalizeStoredStringValue(await store.get('openai-model')) ?? 'gpt-5.4-mini');
             setOllamaModel(normalizeStoredStringValue(await store.get('ollama-model')) ?? 'llama3.2');
 
             const poAssistantImage = await store.get(PO_ASSISTANT_AVATAR_IMAGE_STORE_KEY);
@@ -1104,7 +1104,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                                             ) : (
                                                 <input
                                                     type="text"
-                                                    placeholder="claude-3-5-sonnet-latest"
+                                                    placeholder="claude-haiku-4-5"
                                                     value={anthropicModel}
                                                     onChange={(e) => setAnthropicModel(e.target.value)}
                                                     className="mb-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
@@ -1193,7 +1193,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                                             ) : (
                                                 <input
                                                     type="text"
-                                                    placeholder="gemini-2.5-flash"
+                                                    placeholder="gemini-3-flash-preview"
                                                     value={geminiModel}
                                                     onChange={(e) => setGeminiModel(e.target.value)}
                                                     className="mb-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-500"
@@ -1282,7 +1282,7 @@ export function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProp
                                             ) : (
                                                 <input
                                                     type="text"
-                                                    placeholder="gpt-4o"
+                                                    placeholder="gpt-5.4-mini"
                                                     value={openaiModel}
                                                     onChange={(e) => setOpenaiModel(e.target.value)}
                                                     className="mb-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"

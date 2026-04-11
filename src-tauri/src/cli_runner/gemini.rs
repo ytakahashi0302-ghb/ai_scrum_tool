@@ -1,7 +1,7 @@
 use super::{CliRunner, CliType};
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_MODEL: &str = "gemini-2.5-pro";
+pub const DEFAULT_MODEL: &str = "gemini-3-flash-preview";
 pub const INSTALL_HINT: &str = "npm install -g @google/gemini-cli";
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -53,6 +53,10 @@ impl CliRunner for GeminiRunner {
     fn env_vars(&self) -> Vec<(String, String)> {
         vec![]
     }
+
+    fn timeout_secs(&self) -> u64 {
+        180
+    }
 }
 
 #[cfg(windows)]
@@ -79,14 +83,14 @@ mod tests {
     #[test]
     fn builds_expected_gemini_arguments() {
         let runner = GeminiRunner;
-        let args = runner.build_args("prompt", "gemini-2.5-flash", "C:/repo");
+        let args = runner.build_args("prompt", "gemini-3-flash-preview", "C:/repo");
 
         assert_eq!(runner.cli_type(), CliType::Gemini);
         assert_eq!(
             args,
             vec![
                 "--model",
-                "gemini-2.5-flash",
+                "gemini-3-flash-preview",
                 "--yolo",
                 "--prompt",
                 "prompt",
@@ -99,7 +103,7 @@ mod tests {
         assert_eq!(runner.install_hint(), INSTALL_HINT);
         assert!(runner.env_vars().is_empty());
         assert_eq!(runner.stdin_payload("prompt"), None);
-        assert_eq!(runner.timeout_secs(), 60);
+        assert_eq!(runner.timeout_secs(), 180);
     }
 
     #[cfg(windows)]
@@ -123,7 +127,7 @@ mod tests {
         let (resolved_command, resolved_args) = runner
             .prepare_invocation(
                 &command_path,
-                vec!["--model".into(), "gemini-2.5-pro".into()],
+                vec!["--model".into(), "gemini-3-flash-preview".into()],
             )
             .expect("invocation should be prepared");
 
@@ -135,6 +139,6 @@ mod tests {
         assert_eq!(resolved_args[0], "--no-warnings=DEP0040");
         assert!(resolved_args[1].ends_with("gemini.js"));
         assert_eq!(resolved_args[2], "--model");
-        assert_eq!(resolved_args[3], "gemini-2.5-pro");
+        assert_eq!(resolved_args[3], "gemini-3-flash-preview");
     }
 }

@@ -1,7 +1,7 @@
 use super::{CliRunner, CliType};
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_MODEL: &str = "o3";
+pub const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 pub const INSTALL_HINT: &str = "npm install -g @openai/codex";
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn builds_expected_codex_arguments() {
         let runner = CodexRunner;
-        let args = runner.build_args("prompt", "o3-mini", "C:/repo");
+        let args = runner.build_args("prompt", "gpt-5.4-mini", "C:/repo");
 
         assert_eq!(runner.cli_type(), CliType::Codex);
         assert_eq!(
@@ -103,7 +103,7 @@ mod tests {
                 "--full-auto",
                 "--skip-git-repo-check",
                 "--model",
-                "o3-mini",
+                "gpt-5.4-mini",
                 "-"
             ]
             .into_iter()
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn prepare_response_capture_injects_output_file_flag() {
         let runner = CodexRunner;
-        let mut args = runner.build_args("prompt", "o3-mini", "C:/repo");
+        let mut args = runner.build_args("prompt", "gpt-5.4-mini", "C:/repo");
         runner
             .prepare_response_capture(&mut args, Path::new("C:/tmp/codex-output.txt"))
             .expect("capture args should be prepared");
@@ -168,7 +168,7 @@ mod tests {
                 "--full-auto",
                 "--skip-git-repo-check",
                 "--model",
-                "o3-mini",
+                "gpt-5.4-mini",
                 "-",
             ]
             .into_iter()

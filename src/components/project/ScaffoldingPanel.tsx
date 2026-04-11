@@ -122,38 +122,48 @@ export function ScaffoldingPanel({ localPath, projectName }: ScaffoldingPanelPro
 
     // scaffold_output / scaffold_exit イベントリスナー
     useEffect(() => {
-        const unlisteners: UnlistenFn[] = [];
+        let isDisposed = false;
 
         const setupListeners = async () => {
-            const u1 = await listen<{ output: string }>('scaffold_output', (event) => {
+            const nextUnlisteners: UnlistenFn[] = [];
+            const register = async <T,>(
+                eventName: string,
+                handler: (event: { payload: T }) => void | Promise<void>,
+            ) => {
+                const unlisten = await listen<T>(eventName, handler);
+                if (isDisposed) {
+                    unlisten();
+                    return;
+                }
+                nextUnlisteners.push(unlisten);
+            };
+
+            await register<{ output: string }>('scaffold_output', (event) => {
                 setOutput((prev) => [...prev, event.payload.output]);
             });
-            unlisteners.push(u1);
 
-            const u2 = await listen<{ success: boolean; reason: string }>('scaffold_exit', (event) => {
+            await register<{ success: boolean; reason: string }>('scaffold_exit', (event) => {
                 if (event.payload.success) {
                     // スキャフォールド成功 → AGENT.md + .claude/settings.json 生成へ
-                    handlePostScaffold();
+                    void handlePostScaffold();
                 } else {
                     setErrorMessage(event.payload.reason);
                     setState('error');
                     toast.error(`スキャフォールド失敗: ${event.payload.reason}`);
                 }
             });
-            unlisteners.push(u2);
 
             // CLI ベース AI スキャフォールド用（既存の claude_cli_* イベント名を再利用）
-            const u3 = await listen<{ task_id: string; output: string }>('claude_cli_output', (event) => {
+            await register<{ task_id: string; output: string }>('claude_cli_output', (event) => {
                 if (event.payload.task_id.startsWith('scaffold-ai-')) {
                     setOutput((prev) => [...prev, event.payload.output]);
                 }
             });
-            unlisteners.push(u3);
 
-            const u4 = await listen<{ task_id: string; success: boolean; reason: string }>('claude_cli_exit', (event) => {
+            await register<{ task_id: string; success: boolean; reason: string }>('claude_cli_exit', (event) => {
                 if (event.payload.task_id.startsWith('scaffold-ai-')) {
                     if (event.payload.success) {
-                        handlePostScaffold();
+                        void handlePostScaffold();
                     } else {
                         setErrorMessage(event.payload.reason);
                         setState('error');
@@ -161,12 +171,21 @@ export function ScaffoldingPanel({ localPath, projectName }: ScaffoldingPanelPro
                     }
                 }
             });
-            unlisteners.push(u4);
+
+            if (isDisposed) {
+                nextUnlisteners.forEach((unlisten) => unlisten());
+                return;
+            }
+
+            return nextUnlisteners;
         };
 
-        setupListeners();
+        const unlistenPromise = setupListeners();
         return () => {
-            unlisteners.forEach((u) => u());
+            isDisposed = true;
+            void unlistenPromise.then((unlisteners) => {
+                unlisteners?.forEach((unlisten) => unlisten());
+            });
         };
     }, [handlePostScaffold]);
 
@@ -323,7 +342,7 @@ export function ScaffoldingPanel({ localPath, projectName }: ScaffoldingPanelPro
                 )}
 
                 {/* 実行中 / 出力表示 */}
-                {(state === 'executing' || (state === 'generating' && output.length > 0)) && (
+                {(state === 'executing' || state === 'error' || (state === 'generating' && output.length > 0)) && output.length > 0 && (
                     <div className="bg-gray-900 text-green-400 rounded-lg p-4 font-mono text-xs max-h-60 overflow-y-auto">
                         {output.map((line, idx) => (
                             <div key={idx} className="whitespace-pre-wrap">{line}</div>

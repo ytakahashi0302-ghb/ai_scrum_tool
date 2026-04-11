@@ -47,9 +47,9 @@ const CLI_OPTIONS: Array<{
 ];
 
 const DEFAULT_MODELS: Record<SupportedCliType, string> = {
-    claude: 'claude-sonnet-4-20250514',
-    gemini: 'gemini-2.5-pro',
-    codex: 'o3',
+    claude: 'claude-haiku-4-5',
+    gemini: 'gemini-3-flash-preview',
+    codex: 'gpt-5.4-mini',
 };
 
 function normalizeCliType(value: string): SupportedCliType {
@@ -127,11 +127,11 @@ function getModelLabel(cliType: SupportedCliType): string {
 function getModelPlaceholder(cliType: SupportedCliType): string {
     switch (cliType) {
         case 'gemini':
-            return '例: gemini-2.5-pro';
+            return '例: gemini-3-flash-preview';
         case 'codex':
-            return '例: o3';
+            return '例: gpt-5.4-mini';
         default:
-            return '例: claude-sonnet-4-20250514';
+            return '例: claude-haiku-4-5';
     }
 }
 
@@ -140,7 +140,7 @@ function getModelHint(cliType: SupportedCliType): string {
         case 'gemini':
             return 'Gemini CLI はプロジェクトや認証方法によって利用可能モデルが変わるため、必要に応じて API カタログまたは公式ドキュメントを参考に入力してください。';
         case 'codex':
-            return 'Codex CLI は CLI から安定したモデル一覧取得を提供していないため、推奨既定値 `o3` を起点に手動で指定してください。';
+            return 'Codex CLI は CLI から安定したモデル一覧取得を提供していないため、推奨既定値 `gpt-5.4-mini` を起点に手動で指定してください。';
         default:
             return 'Claude Code CLI では Anthropic API カタログを参考にできます。未取得時はモデル名を手動入力してください。';
     }
@@ -461,7 +461,7 @@ export function TeamSettingsTab({
                         </div>
                         <div className="mt-1 text-sm font-semibold text-slate-900">CLI ベース設定</div>
                         <div className="mt-4 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-600">
-                            Codex CLI は現時点で CLI から安定したモデル一覧を返さないため、既定値 `o3` を起点に手動入力で設定します。
+                            Codex CLI は現時点で CLI から安定したモデル一覧を返さないため、既定値 `gpt-5.4-mini` を起点に手動入力で設定します。
                         </div>
                     </div>
                 </div>

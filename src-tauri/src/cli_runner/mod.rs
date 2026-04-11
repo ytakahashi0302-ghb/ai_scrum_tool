@@ -181,9 +181,9 @@ mod tests {
     #[test]
     fn create_runner_returns_all_supported_runners() {
         let cases = [
-            (CliType::Claude, "claude", "claude-sonnet-4-20250514"),
-            (CliType::Gemini, "gemini", "gemini-2.5-pro"),
-            (CliType::Codex, "codex", "o3"),
+            (CliType::Claude, "claude", "claude-haiku-4-5"),
+            (CliType::Gemini, "gemini", "gemini-3-flash-preview"),
+            (CliType::Codex, "codex", "gpt-5.4-mini"),
         ];
 
         for (cli_type, expected_command, expected_model) in cases {
@@ -199,7 +199,7 @@ mod tests {
     fn resolve_model_falls_back_to_runner_default() {
         let runner = create_runner(&CliType::Gemini).expect("Gemini runner should exist");
 
-        assert_eq!(runner.resolve_model(""), "gemini-2.5-pro");
+        assert_eq!(runner.resolve_model(""), "gemini-3-flash-preview");
         assert_eq!(runner.resolve_model("  custom-model  "), "custom-model");
     }
 }

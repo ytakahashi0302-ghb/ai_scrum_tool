@@ -397,6 +397,142 @@ fn apply_api_scaffold_plan(
     Ok(summary)
 }
 
+fn scaffold_cli_requires_temporary_workspace(args: &[String]) -> bool {
+    args.iter().any(|arg| arg.trim() == ".")
+}
+
+fn create_cli_scaffold_temp_project_dir(local_path: &Path) -> Result<(PathBuf, PathBuf), String> {
+    let temp_root = std::env::temp_dir().join(format!("vicara-scaffold-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_root).map_err(|error| {
+        format!(
+            "一時ディレクトリの作成に失敗しました ({}): {}",
+            temp_root.display(),
+            error
+        )
+    })?;
+    let project_dir_name = local_path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "project".to_string());
+    let temp_project_dir = temp_root.join(project_dir_name);
+    std::fs::create_dir_all(&temp_project_dir).map_err(|error| {
+        format!(
+            "一時プロジェクトディレクトリの作成に失敗しました ({}): {}",
+            temp_project_dir.display(),
+            error
+        )
+    })?;
+
+    Ok((temp_root, temp_project_dir))
+}
+
+fn copy_scaffold_entry(source: &Path, destination: &Path) -> Result<(), String> {
+    if source.is_dir() {
+        std::fs::create_dir_all(destination).map_err(|error| {
+            format!(
+                "ディレクトリ作成に失敗しました ({}): {}",
+                destination.display(),
+                error
+            )
+        })?;
+
+        for entry in std::fs::read_dir(source).map_err(|error| {
+            format!(
+                "ディレクトリの読み取りに失敗しました ({}): {}",
+                source.display(),
+                error
+            )
+        })? {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "ディレクトリエントリの読み取りに失敗しました ({}): {}",
+                    source.display(),
+                    error
+                )
+            })?;
+            let child_source = entry.path();
+            let child_destination = destination.join(entry.file_name());
+            copy_scaffold_entry(&child_source, &child_destination)?;
+        }
+        return Ok(());
+    }
+
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "親ディレクトリの作成に失敗しました ({}): {}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
+
+    std::fs::copy(source, destination).map_err(|error| {
+        format!(
+            "ファイルコピーに失敗しました ({} -> {}): {}",
+            source.display(),
+            destination.display(),
+            error
+        )
+    })?;
+
+    Ok(())
+}
+
+fn import_cli_scaffold_output(generated_root: &Path, project_root: &Path) -> Result<Vec<String>, String> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(generated_root).map_err(|error| {
+        format!(
+            "CLI スキャフォールド結果の読み取りに失敗しました ({}): {}",
+            generated_root.display(),
+            error
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            format!(
+                "CLI スキャフォールド結果のエントリ読み取りに失敗しました ({}): {}",
+                generated_root.display(),
+                error
+            )
+        })?;
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if file_name == ".git" {
+            continue;
+        }
+        entries.push((file_name, entry.path()));
+    }
+
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    if entries.is_empty() {
+        return Err("CLI スキャフォールド結果に取り込めるファイルがありませんでした。".to_string());
+    }
+
+    let conflicts: Vec<String> = entries
+        .iter()
+        .filter_map(|(file_name, _)| {
+            let target = project_root.join(file_name);
+            target.exists().then(|| file_name.clone())
+        })
+        .collect();
+    if !conflicts.is_empty() {
+        return Err(format!(
+            "CLI スキャフォールド結果を取り込めませんでした。既存のファイル/ディレクトリと衝突しています: {}",
+            conflicts.join(", ")
+        ));
+    }
+
+    let mut imported_entries = Vec::new();
+    for (file_name, source_path) in entries {
+        let destination_path = project_root.join(&file_name);
+        copy_scaffold_entry(&source_path, &destination_path)?;
+        imported_entries.push(file_name);
+    }
+
+    Ok(imported_entries)
+}
+
 // ---------------------------------------------------------------------------
 // 技術スタック検出
 // ---------------------------------------------------------------------------
@@ -466,6 +602,9 @@ fn determine_strategy(stack: &TechStackInfo) -> ScaffoldStrategy {
                         "--ts".to_string(),
                         "--app".to_string(),
                         "--use-npm".to_string(),
+                        "--yes".to_string(),
+                        "--skip-install".to_string(),
+                        "--disable-git".to_string(),
                     ],
                 };
             }
@@ -715,8 +854,26 @@ pub async fn execute_scaffold_cli(
         return Err("ディレクトリが存在しません。".to_string());
     }
 
+    let mut temp_workspace_root = None;
+    let execution_dir = if scaffold_cli_requires_temporary_workspace(&args) {
+        let (temp_root, temp_project_dir) = create_cli_scaffold_temp_project_dir(p)?;
+        emit_scaffold_output(
+            &app_handle,
+            format!(
+                "既存の Inception ドキュメントと衝突しないよう、一時ディレクトリで CLI scaffold を実行します: {}",
+                temp_project_dir.display()
+            ),
+        );
+        temp_workspace_root = Some(temp_root);
+        temp_project_dir
+    } else {
+        p.to_path_buf()
+    };
+
     // PTY セッションを生成
-    let session_id = state.spawn_session(&local_path).await?;
+    let session_id = state
+        .spawn_session(&execution_dir.to_string_lossy())
+        .await?;
 
     // コマンド文字列を組み立て
     let full_command = if args.is_empty() {
@@ -738,7 +895,7 @@ pub async fn execute_scaffold_cli(
     // セッション解放
     let _ = state.kill_session(&session_id).await;
 
-    match result {
+    let response = match result {
         Ok(exec_result) => {
             // 出力をイベントとして送信
             if !exec_result.stdout.is_empty() {
@@ -758,16 +915,39 @@ pub async fn execute_scaffold_cli(
                 );
             }
 
-            let success = exec_result.exit_code == 0;
+            let mut success = exec_result.exit_code == 0;
+            let mut reason = if success {
+                "スキャフォールド完了".to_string()
+            } else {
+                format!("exit code: {}", exec_result.exit_code)
+            };
+            if success {
+                if temp_workspace_root.is_some() {
+                    match import_cli_scaffold_output(&execution_dir, p) {
+                        Ok(imported_entries) => {
+                            for imported_entry in &imported_entries {
+                                emit_scaffold_output(
+                                    &app_handle,
+                                    format!("imported: {}", imported_entry),
+                                );
+                            }
+                            reason = format!(
+                                "CLI スキャフォールド完了: {} 件を取り込みました",
+                                imported_entries.len()
+                            );
+                        }
+                        Err(error) => {
+                            success = false;
+                            reason = error;
+                        }
+                    }
+                }
+            }
             let _ = app_handle.emit(
                 "scaffold_exit",
                 ScaffoldExitPayload {
                     success,
-                    reason: if success {
-                        "スキャフォールド完了".to_string()
-                    } else {
-                        format!("exit code: {}", exec_result.exit_code)
-                    },
+                    reason,
                 },
             );
             Ok(success)
@@ -782,7 +962,13 @@ pub async fn execute_scaffold_cli(
             );
             Err(e)
         }
+    };
+
+    if let Some(temp_root) = temp_workspace_root {
+        let _ = std::fs::remove_dir_all(temp_root);
     }
+
+    response
 }
 
 /// PO アシスタント設定に追従して AI にディレクトリ構造を生成させる。
@@ -974,8 +1160,10 @@ fn collect_tree_entries(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_reserved_scaffold_target, normalize_scaffold_relative_path, parse_api_scaffold_plan,
+        import_cli_scaffold_output, is_reserved_scaffold_target, normalize_scaffold_relative_path,
+        parse_api_scaffold_plan, scaffold_cli_requires_temporary_workspace,
     };
+    use std::fs;
     use std::path::Path;
 
     #[test]
@@ -1010,5 +1198,51 @@ mod tests {
         assert!(is_reserved_scaffold_target(Path::new("PRODUCT_CONTEXT.md")));
         assert!(is_reserved_scaffold_target(Path::new(".claude/settings.json")));
         assert!(!is_reserved_scaffold_target(Path::new("src/main.ts")));
+    }
+
+    #[test]
+    fn scaffold_cli_requires_temp_workspace_when_target_is_current_directory() {
+        assert!(scaffold_cli_requires_temporary_workspace(&[
+            "create-next-app@latest".to_string(),
+            ".".to_string(),
+        ]));
+        assert!(!scaffold_cli_requires_temporary_workspace(&[
+            "create-next-app@latest".to_string(),
+            "my-app".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn import_cli_scaffold_output_merges_generated_files_without_touching_inception_docs() {
+        let generated_dir = tempfile::tempdir().expect("generated tempdir should exist");
+        let project_dir = tempfile::tempdir().expect("project tempdir should exist");
+
+        fs::write(project_dir.path().join("PRODUCT_CONTEXT.md"), "# existing").expect("seed docs");
+        fs::create_dir_all(generated_dir.path().join("src")).expect("src dir should exist");
+        fs::write(generated_dir.path().join("package.json"), "{}").expect("package file should exist");
+        fs::write(generated_dir.path().join("src").join("main.ts"), "console.log('ok');")
+            .expect("main file should exist");
+
+        let result = import_cli_scaffold_output(generated_dir.path(), project_dir.path())
+            .expect("import should succeed");
+
+        assert_eq!(result, vec!["package.json".to_string(), "src".to_string()]);
+        assert!(project_dir.path().join("PRODUCT_CONTEXT.md").exists());
+        assert!(project_dir.path().join("package.json").exists());
+        assert!(project_dir.path().join("src").join("main.ts").exists());
+    }
+
+    #[test]
+    fn import_cli_scaffold_output_rejects_top_level_conflicts() {
+        let generated_dir = tempfile::tempdir().expect("generated tempdir should exist");
+        let project_dir = tempfile::tempdir().expect("project tempdir should exist");
+
+        fs::write(generated_dir.path().join("package.json"), "{}").expect("generated package exists");
+        fs::write(project_dir.path().join("package.json"), "{}").expect("project package exists");
+
+        let error = import_cli_scaffold_output(generated_dir.path(), project_dir.path())
+            .expect_err("conflicting top-level file should fail");
+
+        assert!(error.contains("package.json"));
     }
 }

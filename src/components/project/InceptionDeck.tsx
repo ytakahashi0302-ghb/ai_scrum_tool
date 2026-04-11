@@ -4,6 +4,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { load } from '@tauri-apps/plugin-store';
 import toast from 'react-hot-toast';
 import { ScaffoldingPanel } from './ScaffoldingPanel';
+import { Avatar } from '../ai/Avatar';
+import { usePoAssistantAvatarImage } from '../../hooks/usePoAssistantAvatarImage';
+import { getAvatarDefinition, resolveAvatarImageSource } from '../ai/avatarRegistry';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -14,11 +17,11 @@ type InceptionTab = 'CONTEXT' | 'ARCHITECTURE' | 'RULE';
 type InceptionFilename = 'PRODUCT_CONTEXT.md' | 'ARCHITECTURE.md' | 'Rule.md';
 
 const PHASE_GUIDE_MESSAGES: Record<number, string> = {
-    1: "Phase 1 を開始します。\nプロダクトのコア価値とターゲット (Why) について教えてください。",
-    2: "次のフェーズへ進みました。\nPhase 2 (Not List): やらないことリストについて決めていきましょう。",
-    3: "次のフェーズへ進みました。\nPhase 3 (What): 技術スタックとアーキテクチャの制約について教えてください。",
-    4: "次のフェーズへ進みました。\nPhase 4 (How): プロジェクト固有の開発ルールやAIへの追加ルールはありますか？",
-    5: "次のフェーズへ進みました。\nPhase 5: 初期足場構築（Scaffolding）を開始します。",
+    1: "Phase 1 を始めます。\nこのアプリで、誰のどんな困りごとを解決したいですか？ まだ曖昧なら、思い浮かんでいる利用者像からで大丈夫です。",
+    2: "次のフェーズへ進みます。\n今回は『やること』ではなく『今回はやらないこと』を決めます。最初のリリースから外したい機能や、避けたい方向性はありますか？",
+    3: "次のフェーズへ進みます。\nこのアプリは、まずどんな環境で使えればよさそうですか？ たとえば PC ブラウザ中心か、スマホでも使いたいか、最初はローカルだけでよいか、などを教えてください。",
+    4: "次のフェーズへ進みます。\n開発を進めるときに守りたい約束ごとはありますか？ たとえば品質、セキュリティ、AI への指示などです。",
+    5: "次のフェーズへ進みます。\nここからは最初の土台づくりを始めます。",
 };
 
 function getPhaseGuideMessage(phase: number, mode: 'advance' | 'resume' = 'advance') {
@@ -27,18 +30,18 @@ function getPhaseGuideMessage(phase: number, mode: 'advance' | 'resume' = 'advan
     }
 
     if (phase === 1) {
-        return "Phase 1 に戻りました。\nプロダクトのコア価値とターゲット (Why) を更新しましょう。";
+        return "Phase 1 に戻りました。\nこのアプリで、誰のどんな困りごとを解決したいかを整理し直しましょう。";
     }
     if (phase === 2) {
-        return "Phase 2 に戻りました。\nやらないことリスト (Not List) を見直しましょう。";
+        return "Phase 2 に戻りました。\n今回はやらないことや、最初のリリースから外す内容を見直しましょう。";
     }
     if (phase === 3) {
-        return "Phase 3 に戻りました。\n技術スタックとアーキテクチャ方針を更新しましょう。";
+        return "Phase 3 に戻りました。\nまずどんな環境で使えればよいか、ローカル中心でよいか、あとでクラウド対応したいかを見直しましょう。";
     }
     if (phase === 4) {
-        return "Phase 4 に戻りました。\n開発ルールや AI への追加指示を更新しましょう。";
+        return "Phase 4 に戻りました。\n開発で守りたいルールや AI への追加指示を見直しましょう。";
     }
-    return "Phase 5 に移動しました。\n初期足場構築（Scaffolding）を進めます。";
+    return "Phase 5 に移動しました。\n最初の土台づくりを進めます。";
 }
 
 function detectPhaseMarker(content: string): number | null {
@@ -98,6 +101,9 @@ function looksLikeDocumentCompletionClaim(reply: string) {
 export function InceptionDeck() {
     const { projects, currentProjectId } = useWorkspace();
     const currentProject = projects.find(p => p.id === currentProjectId);
+    const poAssistantAvatarImage = usePoAssistantAvatarImage();
+    const poAssistantFigure = getAvatarDefinition('po-assistant');
+    const poAssistantFigureSrc = resolveAvatarImageSource(poAssistantAvatarImage) ?? poAssistantFigure.src;
     
     // Phase Management
     const [currentPhase, setCurrentPhase] = useState<number>(1);
@@ -109,6 +115,7 @@ export function InceptionDeck() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isFigureHidden, setIsFigureHidden] = useState(false);
     const [fileContents, setFileContents] = useState({
         CONTEXT: '',
         ARCHITECTURE: '',
@@ -116,6 +123,7 @@ export function InceptionDeck() {
     });
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const sendLockRef = useRef(false);
 
     // Initial Load & Base Rule Generation, plus Store Hydration
     useEffect(() => {
@@ -199,13 +207,21 @@ export function InceptionDeck() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    useEffect(() => {
+        setIsFigureHidden(false);
+    }, [poAssistantFigureSrc]);
+
     const navigateToPhase = (targetPhase: number) => {
         setCurrentPhase(targetPhase);
         setMessages((prev) => [...prev, { role: 'assistant', content: getPhaseGuideMessage(targetPhase, 'resume') }]);
     };
 
     const handleSendMessage = async () => {
-        if (!inputText.trim() || !currentProject?.local_path) return;
+        if (sendLockRef.current || isProcessing || !inputText.trim() || !currentProject?.local_path) {
+            return;
+        }
+
+        sendLockRef.current = true;
 
         const userMsg: ChatMessage = { role: 'user', content: inputText };
         const requestMessages = [...getMessagesForPhase(messages, currentPhase), userMsg];
@@ -292,6 +308,7 @@ export function InceptionDeck() {
             console.error('Chat failed:', error);
             toast.error('AIとの通信に失敗しました');
         } finally {
+            sendLockRef.current = false;
             setIsProcessing(false);
         }
     };
@@ -319,6 +336,15 @@ export function InceptionDeck() {
                 {currentPhase === 5 ? (
                     /* Phase 5: Scaffolding Panel */
                     <>
+                        <div className="flex items-center justify-end border-b border-gray-200 bg-gradient-to-r from-white via-blue-50 to-emerald-50 px-4 py-3">
+                            <div className="flex items-center gap-3 rounded-full border border-blue-100 bg-white/90 px-3 py-1.5 shadow-sm">
+                                <div className="text-right">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">PO Assistant</div>
+                                    <div className="text-sm font-medium text-slate-700">インセプションを伴走中</div>
+                                </div>
+                                <Avatar kind="po-assistant" size="sm" imageSrc={poAssistantAvatarImage} />
+                            </div>
+                        </div>
                         <ScaffoldingPanel
                             localPath={currentProject.local_path}
                             projectName={currentProject.name}
@@ -334,36 +360,61 @@ export function InceptionDeck() {
                     </>
                 ) : (
                     /* Phase 1-4: Chat Wizard */
-                    <>
+                    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                         <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
                             <div>
                                 <h2 className="text-lg font-bold text-gray-800">AI Inception Deck</h2>
                                 <p className="text-sm text-gray-500">スプリント0: プロジェクトの方向性をすり合わせる</p>
                             </div>
-                            <div className="text-sm font-medium px-3 py-1 bg-blue-100 text-blue-800 rounded-full">
-                                Phase {currentPhase} / 5
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-3 rounded-full border border-blue-100 bg-white px-3 py-1.5 shadow-sm">
+                                    <div className="text-right">
+                                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-700">PO Assistant</div>
+                                        <div className="text-xs text-slate-500">価値の言語化をサポート</div>
+                                    </div>
+                                    <Avatar kind="po-assistant" size="sm" imageSrc={poAssistantAvatarImage} />
+                                </div>
+                                <div className="text-sm font-medium px-3 py-1 bg-blue-100 text-blue-800 rounded-full">
+                                    Phase {currentPhase} / 5
+                                </div>
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                            {messages.map((msg, idx) => (
-                                <div key={idx} className={`p-3 rounded-lg border max-w-[85%] ${
-                                    msg.role === 'user'
-                                        ? 'bg-white text-gray-800 border-gray-200 self-end ml-auto'
-                                        : 'bg-blue-50 text-blue-900 border-blue-100 self-start'
-                                }`}>
-                                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                        <div className="relative min-h-0 flex-1 overflow-hidden bg-gradient-to-b from-white via-slate-50/60 to-blue-50/40">
+                            <div className="relative z-10 flex h-full flex-col overflow-y-auto px-4 py-4 pr-6 xl:pr-[7.5rem]">
+                                <div className="space-y-4">
+                                    {messages.map((msg, idx) => (
+                                        <div key={idx} className={`p-3 rounded-lg border max-w-[85%] ${
+                                            msg.role === 'user'
+                                                ? 'bg-white text-gray-800 border-gray-200 self-end ml-auto'
+                                                : 'bg-blue-50 text-blue-900 border-blue-100 self-start'
+                                        }`}>
+                                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                                        </div>
+                                    ))}
+                                    {isProcessing && (
+                                        <div className="bg-blue-50 text-blue-900 p-3 rounded-lg border border-blue-100 max-w-[85%] self-start flex items-center gap-2">
+                                            <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></span>
+                                            <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+                                            <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></span>
+                                        </div>
+                                    )}
                                 </div>
-                            ))}
-                            {isProcessing && (
-                                <div className="bg-blue-50 text-blue-900 p-3 rounded-lg border border-blue-100 max-w-[85%] self-start flex items-center gap-2">
-                                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></span>
-                                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
-                                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></span>
-                                </div>
-                            )}
-                            <div ref={messagesEndRef} />
+                                <div ref={messagesEndRef} />
+                            </div>
                         </div>
+
+                        {!isFigureHidden && (
+                            <div className="pointer-events-none absolute bottom-[104px] right-[-34px] z-[1] hidden xl:block">
+                                <div className="absolute inset-x-6 bottom-10 top-14 rounded-full bg-emerald-300/14 blur-3xl" />
+                                <img
+                                    src={poAssistantFigureSrc}
+                                    alt={poAssistantFigure.label}
+                                    className="relative h-[365px] w-[210px] origin-bottom-right object-contain opacity-95 drop-shadow-[0_24px_30px_rgba(16,185,129,0.16)]"
+                                    onError={() => setIsFigureHidden(true)}
+                                />
+                            </div>
+                        )}
 
                         <div className="p-4 border-t border-gray-200 bg-white">
                             <div className="flex flex-col gap-2">
@@ -371,7 +422,12 @@ export function InceptionDeck() {
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSendMessage();
+                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                            e.preventDefault();
+                                            if (!sendLockRef.current && !isProcessing) {
+                                                void handleSendMessage();
+                                            }
+                                        }
                                     }}
                                     disabled={isProcessing}
                                     className="w-full border border-gray-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none h-20"
@@ -380,7 +436,7 @@ export function InceptionDeck() {
                                 <div className="flex justify-between items-center">
                                     <span className="text-xs text-gray-400">Ctrl+Enterで送信</span>
                                     <button
-                                        onClick={handleSendMessage}
+                                        onClick={() => void handleSendMessage()}
                                         disabled={isProcessing || !inputText.trim()}
                                         className="px-6 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
@@ -404,7 +460,7 @@ export function InceptionDeck() {
                                 </button>
                             </div>
                         </div>
-                    </>
+                    </div>
                 )}
             </div>
 

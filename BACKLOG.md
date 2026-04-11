@@ -12,6 +12,8 @@
 ## AI連携 & LLM挙動の差異
 - [ ] **Claude CLI 実行分の厳密 usage 計測**: Epic 32 では CLI 実行分について `measurement_status='unavailable'` を許容する。将来的には Claude CLI から機械可読な usage を安全に取得し、文字列パースに依存しない正確な token/cost 計測へ移行する。
 - [ ] **Gemini/Codex CLIの最新引数仕様への追従**: Epic 38で実装したCLI引数（`--sandbox permissive`, `--full-auto`）が最新の公式仕様（`--yolo`, `codex exec` 等）と乖離している可能性があるため、UI実装後の結合テスト時に実機検証し、正しいコマンドへ修正する。
+- [ ] **Claude Code CLI の途中経過表示を stream-json 受信方式へ移行**: 現在の Dev エージェント実装では `claude -p ... --verbose` の headless 実行でログを拾っているが、Claude Code の途中経過を Gemini/Codex と同等に安定表示するには `--output-format stream-json` と partial message ベースの受信・描画フローへ切り替える必要がある。
+- [ ] **Claude Code CLI の出力モード (stream-json) を活用した部分メッセージ表示の改善**: Epic 44 の調査で、現行の `claude -p ... --verbose` では Claude Code の途中経過表示に限界があることを確認した。`--output-format stream-json` を使って partial message を逐次受信し、Dev ターミナルや関連 UI に段階表示できる実装へ改善する。
 
 ## Inception Deck (スプリント0) 関連
 - [ ] **Epic 44: インセプションデッキ作成ウィザードの改善（プロダクトパートナー化）**: 専門用語を避けた親しみやすい対話、エレベーターピッチの自動生成、AIの役割を司会者から伴走者へアップデートする等、UX全般を改善する。

@@ -239,7 +239,7 @@ pub fn calculate_estimated_cost(
 
 pub fn resolve_pricing(provider: &str, model: &str) -> PricingSnapshot {
     let provider = provider.to_lowercase();
-    let model = model.to_lowercase();
+    let model = model.to_lowercase().replace('_', ".");
 
     if provider.contains("ollama") {
         return PricingSnapshot::zero();
@@ -322,7 +322,7 @@ pub fn resolve_pricing(provider: &str, model: &str) -> PricingSnapshot {
             };
         }
 
-        if model.starts_with("gpt-5-mini") {
+        if model.starts_with("gpt-5.4-mini") || model.starts_with("gpt-5-mini") {
             return PricingSnapshot {
                 input_cost_per_million: 0.25,
                 output_cost_per_million: 2.0,
@@ -820,6 +820,14 @@ mod tests {
         let pricing = resolve_pricing("gemini", "gemini-2.0-flash");
         assert_eq!(pricing.input_cost_per_million, 0.10);
         assert_eq!(pricing.output_cost_per_million, 0.40);
+    }
+
+    #[test]
+    fn pricing_for_openai_gpt_5_4_mini_is_resolved() {
+        let pricing = resolve_pricing("openai", "gpt-5.4-mini");
+        assert_eq!(pricing.input_cost_per_million, 0.25);
+        assert_eq!(pricing.output_cost_per_million, 2.0);
+        assert_eq!(pricing.cache_read_cost_per_million, 0.025);
     }
 
     #[test]

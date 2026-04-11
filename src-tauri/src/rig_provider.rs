@@ -15,7 +15,7 @@ use tauri_plugin_store::StoreExt;
 
 const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434";
 const DEFAULT_OLLAMA_MODEL: &str = "llama3.2";
-const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-pro";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-3-flash-preview";
 const GEMINI_MAX_RETRIES: usize = 3;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -239,13 +239,9 @@ pub async fn resolve_provider_and_key(
 
     let (key_name, model_key_name, default_model) = match provider {
         AiProvider::Gemini => ("gemini-api-key", "gemini-model", DEFAULT_GEMINI_MODEL),
-        AiProvider::OpenAI => ("openai-api-key", "openai-model", "gpt-4o"),
+        AiProvider::OpenAI => ("openai-api-key", "openai-model", "gpt-5.4-mini"),
         AiProvider::Ollama => ("ollama-endpoint", "ollama-model", DEFAULT_OLLAMA_MODEL),
-        AiProvider::Anthropic => (
-            "anthropic-api-key",
-            "anthropic-model",
-            "claude-haiku-4-5-20251001",
-        ),
+        AiProvider::Anthropic => ("anthropic-api-key", "anthropic-model", "claude-haiku-4-5"),
     };
 
     let api_key = match provider {
