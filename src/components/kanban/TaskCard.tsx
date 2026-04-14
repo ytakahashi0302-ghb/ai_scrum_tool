@@ -28,6 +28,7 @@ import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { Avatar } from '../ai/Avatar';
 import { resolveAvatarForRoleName } from '../ai/avatarRegistry';
+import { useProjectLabels } from '../../hooks/useProjectLabels';
 
 interface TaskCardProps {
     task: Task;
@@ -204,6 +205,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
         () => projects.find((project) => project.id === currentProjectId),
         [projects, currentProjectId],
     );
+    const { formatTaskLabel } = useProjectLabels(task.project_id);
     const assignedRole = assignedRoleId ? roleLookup[assignedRoleId] : undefined;
     const assignedRoleName = assignedRole?.name?.trim() || '';
     const assignedCliDisplayName = resolveCliDisplayName(assignedRole?.cli_type);
@@ -656,6 +658,11 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                     <h4 className="truncate text-sm font-medium text-gray-900" title={task.title}>
                         {task.title}
                     </h4>
+                    <div className="mt-1">
+                        <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                            {formatTaskLabel(task.sequence_number)}
+                        </span>
+                    </div>
                     {assignedRoleName && assignedAvatar && (
                         <div className="mt-1.5 flex items-center gap-2">
                             <Avatar kind={assignedAvatar.kind} size="xs" imageSrc={assignedAvatarImage} />

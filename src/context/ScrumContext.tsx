@@ -13,10 +13,10 @@ interface ScrumContextType {
     sprints: Sprint[];
     dependencies: TaskDependency[];
     loading: boolean;
-    addStory: (story: Omit<Story, 'created_at' | 'updated_at' | 'project_id'>) => Promise<void>;
+    addStory: (story: Omit<Story, 'created_at' | 'updated_at' | 'project_id' | 'sequence_number'>) => Promise<void>;
     updateStory: (story: Story) => Promise<void>;
     deleteStory: (id: string) => Promise<void>;
-    addTask: (task: Omit<Task, 'created_at' | 'updated_at' | 'project_id'>) => Promise<void>;
+    addTask: (task: Omit<Task, 'created_at' | 'updated_at' | 'project_id' | 'sequence_number'>) => Promise<void>;
     updateTaskStatus: (taskId: string, status: Task['status']) => Promise<void>;
     updateTask: (task: Task) => Promise<void>;
     deleteTask: (id: string) => Promise<void>;

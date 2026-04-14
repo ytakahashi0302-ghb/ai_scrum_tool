@@ -15,9 +15,11 @@ import { TeamConfiguration, TeamRoleSetting } from '../../types';
 import { StorySwimlane } from './StorySwimlane';
 import toast from 'react-hot-toast';
 import { VICARA_SETTINGS_UPDATED_EVENT } from '../../hooks/usePoAssistantAvatarImage';
+import { useProjectLabels } from '../../hooks/useProjectLabels';
 
 export function Board() {
     const { stories, tasks, sprints, updateTaskStatus, loading, isTaskBlocked, getTaskBlockers } = useScrum();
+    const { formatSprintLabel } = useProjectLabels();
     const [teamRoles, setTeamRoles] = useState<TeamRoleSetting[]>([]);
     
     const activeSprint = useMemo(() => {
@@ -175,7 +177,12 @@ export function Board() {
     return (
         <div className="p-6 bg-gray-100 h-full">
             <div className="mb-6 flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-900">スプリントボード</h1>
+                <div>
+                    <h1 className="text-2xl font-bold text-gray-900">スプリントボード</h1>
+                    <p className="mt-1 text-sm font-semibold text-slate-500">
+                        {formatSprintLabel(activeSprint)}
+                    </p>
+                </div>
             </div>
 
             <DndContext

@@ -32,7 +32,7 @@ export function useTasks() {
         }
     }, [currentProjectId]);
 
-    const addTask = useCallback(async (task: Omit<Task, 'created_at' | 'updated_at' | 'project_id'>) => {
+    const addTask = useCallback(async (task: Omit<Task, 'created_at' | 'updated_at' | 'project_id' | 'sequence_number'>) => {
         try {
             await invoke('add_task', {
                 id: task.id,

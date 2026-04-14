@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { TaskFormModal, TaskFormData } from '../board/TaskFormModal';
 import { StoryFormModal, StoryFormData } from '../board/StoryFormModal';
 import { useScrum } from '../../context/ScrumContext';
+import { useProjectLabels } from '../../hooks/useProjectLabels';
 import { v4 as uuidv4 } from 'uuid';
 import { invoke } from '@tauri-apps/api/core';
 import toast from 'react-hot-toast';
@@ -22,6 +23,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks, roleLoo
     const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
     const [isEditStoryModalOpen, setIsEditStoryModalOpen] = useState(false);
     const { refresh, updateStory, deleteStory, setTaskDependencies } = useScrum();
+    const { formatStoryLabel } = useProjectLabels(story.project_id);
 
     const handleAddTask = useCallback(async (data: TaskFormData) => {
         const statusMap: Record<TaskFormData['status'], Task['status']> = {
@@ -89,6 +91,9 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks, roleLoo
             <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-start group">
                 <div className="flex-1 pr-4">
                     <div className="flex items-center gap-2">
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-600">
+                            {formatStoryLabel(story.sequence_number)}
+                        </span>
                         <h2 className="text-lg font-semibold text-gray-900">{story.title}</h2>
                         <span className={`text-xs px-1.5 py-0.5 rounded border font-medium shrink-0 ${
                             (story.priority ?? 3) <= 1 ? 'bg-red-100 text-red-700 border-red-200' :
@@ -139,7 +144,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks, roleLoo
                 isOpen={isAddTaskModalOpen}
                 onClose={() => setIsAddTaskModalOpen(false)}
                 onSave={handleAddTask}
-                title={`「${story.title}」にタスクを追加`}
+                title={`「${formatStoryLabel(story.sequence_number)} ${story.title}」にタスクを追加`}
                 availableTasks={tasks}
             />
 

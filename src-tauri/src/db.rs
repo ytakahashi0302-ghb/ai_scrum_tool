@@ -101,6 +101,7 @@ pub struct Project {
 pub struct Story {
     pub id: String,
     pub project_id: String,
+    pub sequence_number: i64,
     pub title: String,
     pub description: Option<String>,
     pub acceptance_criteria: Option<String>,
@@ -117,6 +118,7 @@ pub struct Task {
     pub id: String,
     pub project_id: String,
     pub story_id: String,
+    pub sequence_number: i64,
     pub title: String,
     pub description: Option<String>,
     pub status: String,
@@ -167,6 +169,7 @@ pub struct WorktreeUpsertInput {
 pub struct Sprint {
     pub id: String,
     pub project_id: String,
+    pub sequence_number: i64,
     pub status: String,
     pub started_at: Option<i64>,
     pub completed_at: Option<i64>,
@@ -695,6 +698,34 @@ pub async fn get_project_by_local_path(
     Ok(projects.pop())
 }
 
+async fn next_project_sequence_number(
+    app: &AppHandle,
+    table_name: &str,
+    project_id: &str,
+) -> Result<i64, String> {
+    let instances = app.state::<DbInstances>();
+    let db_instances = instances.0.read().await;
+    let wrapper = db_instances
+        .get(DB_STRING)
+        .ok_or("Database instance not found")?;
+
+    #[allow(unreachable_patterns)]
+    let pool = match wrapper {
+        DbPool::Sqlite(p) => p,
+        _ => return Err("Not an sqlite database".to_string()),
+    };
+
+    let query = format!(
+        "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM {table_name} WHERE project_id = ?"
+    );
+
+    sqlx::query_scalar::<_, i64>(&query)
+        .bind(project_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ------------------------------------------------------------------------------------------------
 // Projects CRUD
 // ------------------------------------------------------------------------------------------------
@@ -795,7 +826,7 @@ pub async fn update_project_path(
 #[tauri::command]
 pub async fn get_stories(app: AppHandle, project_id: String) -> Result<Vec<Story>, String> {
     let query =
-        "SELECT * FROM stories WHERE archived = 0 AND project_id = ? ORDER BY created_at DESC";
+        "SELECT * FROM stories WHERE archived = 0 AND project_id = ? ORDER BY sequence_number DESC, created_at DESC";
     let values = vec![serde_json::to_value(project_id).unwrap()];
     let stories = select_query::<Story>(&app, query, values).await?;
     log::debug!("Fetched stories: {:?}", stories);
@@ -807,7 +838,8 @@ pub async fn get_archived_stories(
     app: AppHandle,
     project_id: String,
 ) -> Result<Vec<Story>, String> {
-    let query = "SELECT * FROM stories WHERE archived = 1 AND project_id = ?";
+    let query =
+        "SELECT * FROM stories WHERE archived = 1 AND project_id = ? ORDER BY sequence_number DESC, created_at DESC";
     let values = vec![serde_json::to_value(project_id).unwrap()];
     select_query::<Story>(&app, query, values).await
 }
@@ -824,10 +856,12 @@ pub async fn add_story(
     priority: Option<i32>,
 ) -> Result<QueryResult, String> {
     let priority_val = priority.unwrap_or(3);
-    let query = "INSERT INTO stories (id, project_id, title, description, acceptance_criteria, status, priority) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    let sequence_number = next_project_sequence_number(&app, "stories", &project_id).await?;
+    let query = "INSERT INTO stories (id, project_id, sequence_number, title, description, acceptance_criteria, status, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
     let values = vec![
         serde_json::to_value(id).unwrap(),
         serde_json::to_value(project_id).unwrap(),
+        serde_json::to_value(sequence_number).unwrap(),
         serde_json::to_value(title).unwrap(),
         serde_json::to_value(description).unwrap(),
         serde_json::to_value(acceptance_criteria).unwrap(),
@@ -873,7 +907,7 @@ pub async fn delete_story(app: AppHandle, id: String) -> Result<QueryResult, Str
 
 #[tauri::command]
 pub async fn get_tasks(app: AppHandle, project_id: String) -> Result<Vec<Task>, String> {
-    let query = "SELECT tasks.* FROM tasks JOIN stories ON tasks.story_id = stories.id WHERE stories.archived = 0 AND tasks.project_id = ? ORDER BY tasks.created_at ASC";
+    let query = "SELECT tasks.* FROM tasks JOIN stories ON tasks.story_id = stories.id WHERE stories.archived = 0 AND tasks.project_id = ? ORDER BY tasks.sequence_number ASC, tasks.created_at ASC";
     let values = vec![serde_json::to_value(project_id).unwrap()];
     let tasks = select_query::<Task>(&app, query, values).await?;
     log::debug!("Fetched tasks: {:?}", tasks);
@@ -882,7 +916,8 @@ pub async fn get_tasks(app: AppHandle, project_id: String) -> Result<Vec<Task>, 
 
 #[tauri::command]
 pub async fn get_archived_tasks(app: AppHandle, project_id: String) -> Result<Vec<Task>, String> {
-    let query = "SELECT * FROM tasks WHERE archived = 1 AND project_id = ?";
+    let query =
+        "SELECT * FROM tasks WHERE archived = 1 AND project_id = ? ORDER BY sequence_number ASC, created_at ASC";
     let values = vec![serde_json::to_value(project_id).unwrap()];
     select_query::<Task>(&app, query, values).await
 }
@@ -893,7 +928,7 @@ pub async fn get_tasks_by_story_id(
     story_id: String,
     project_id: String,
 ) -> Result<Vec<Task>, String> {
-    let query = "SELECT * FROM tasks WHERE story_id = ? AND archived = 0 AND project_id = ? ORDER BY created_at ASC";
+    let query = "SELECT * FROM tasks WHERE story_id = ? AND archived = 0 AND project_id = ? ORDER BY sequence_number ASC, created_at ASC";
     let values = vec![
         serde_json::to_value(story_id).unwrap(),
         serde_json::to_value(project_id).unwrap(),
@@ -916,11 +951,13 @@ pub async fn add_task(
 ) -> Result<QueryResult, String> {
     validate_task_status(&status)?;
     let priority_val = priority.unwrap_or(3);
-    let query = "INSERT INTO tasks (id, project_id, story_id, title, description, status, assignee_type, assigned_role_id, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    let sequence_number = next_project_sequence_number(&app, "tasks", &project_id).await?;
+    let query = "INSERT INTO tasks (id, project_id, story_id, sequence_number, title, description, status, assignee_type, assigned_role_id, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     let values = vec![
         serde_json::to_value(id).unwrap(),
         serde_json::to_value(project_id).unwrap(),
         serde_json::to_value(story_id).unwrap(),
+        serde_json::to_value(sequence_number).unwrap(),
         serde_json::to_value(title).unwrap(),
         serde_json::to_value(description).unwrap(),
         serde_json::to_value(status).unwrap(),
@@ -1260,7 +1297,8 @@ async fn ensure_draft_retro_session(
 
 #[tauri::command]
 pub async fn get_sprints(app: AppHandle, project_id: String) -> Result<Vec<Sprint>, String> {
-    let query = "SELECT * FROM sprints WHERE project_id = ? ORDER BY started_at DESC";
+    let query =
+        "SELECT * FROM sprints WHERE project_id = ? ORDER BY sequence_number DESC, started_at DESC";
     let values = vec![serde_json::to_value(project_id).unwrap()];
     select_query::<Sprint>(&app, query, values).await
 }
@@ -1268,10 +1306,13 @@ pub async fn get_sprints(app: AppHandle, project_id: String) -> Result<Vec<Sprin
 #[tauri::command]
 pub async fn create_planned_sprint(app: AppHandle, project_id: String) -> Result<Sprint, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let query = "INSERT INTO sprints (id, project_id, status) VALUES (?, ?, 'Planned')";
+    let sequence_number = next_project_sequence_number(&app, "sprints", &project_id).await?;
+    let query =
+        "INSERT INTO sprints (id, project_id, sequence_number, status) VALUES (?, ?, ?, 'Planned')";
     let values = vec![
         serde_json::to_value(&id).unwrap(),
         serde_json::to_value(&project_id).unwrap(),
+        serde_json::to_value(sequence_number).unwrap(),
     ];
     execute_query(&app, query, values).await?;
 
@@ -2194,6 +2235,7 @@ mod tests {
         Story {
             id: id.to_string(),
             project_id: "project-1".to_string(),
+            sequence_number: 1,
             title: title.to_string(),
             description: Some("既存実装の要約".to_string()),
             acceptance_criteria: None,
@@ -2215,6 +2257,7 @@ mod tests {
             id: format!("task-{title}"),
             project_id: "project-1".to_string(),
             story_id: story_id.to_string(),
+            sequence_number: 1,
             title: title.to_string(),
             description: Some("完了した作業の詳細".to_string()),
             status: "Done".to_string(),
@@ -2252,6 +2295,7 @@ mod tests {
             "CREATE TABLE sprints (
                 id TEXT PRIMARY KEY,
                 project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                sequence_number INTEGER,
                 status TEXT NOT NULL,
                 started_at INTEGER,
                 completed_at INTEGER,
@@ -2281,7 +2325,7 @@ mod tests {
             .await
             .unwrap();
         sqlx::query(
-            "INSERT INTO sprints (id, project_id, status) VALUES ('sprint-1', 'project-1', 'Completed')",
+            "INSERT INTO sprints (id, project_id, sequence_number, status) VALUES ('sprint-1', 'project-1', 1, 'Completed')",
         )
         .execute(&pool)
         .await

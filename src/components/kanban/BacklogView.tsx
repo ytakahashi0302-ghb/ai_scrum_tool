@@ -7,12 +7,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { Story, Task } from '../../types';
 import toast from 'react-hot-toast';
 import { useSprintTimer } from '../../context/SprintTimerContext';
+import { useProjectLabels } from '../../hooks/useProjectLabels';
 
 // 数値そのままでソート（小さいほど優先度が高い = 先頭に表示）
 
 export function BacklogView() {
     const { stories, tasks, sprints, addStory, updateStory, deleteStory, createPlannedSprint, startSprint, assignStoryToSprint } = useScrum();
     const { ensureTimerRunning, getConfiguredDurationMs } = useSprintTimer();
+    const { formatStoryLabel, formatTaskLabel, formatSprintLabel } = useProjectLabels();
     const [isAddStoryModalOpen, setIsAddStoryModalOpen] = useState(false);
     const [storyFormInitialData, setStoryFormInitialData] = useState<Partial<StoryFormData> | undefined>();
     const [editingStory, setEditingStory] = useState<Story | null>(null);
@@ -129,6 +131,9 @@ export function BacklogView() {
                             story.priority === 4 ? 'bg-blue-100 text-blue-600 border-blue-200' :
                             'bg-gray-100 text-gray-500 border-gray-200'
                         }`}>P{story.priority ?? 3}</span>
+                        <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                            {formatStoryLabel(story.sequence_number)}
+                        </span>
                         {story.title}
                         {totalTasks > 0 && (
                             <span className="text-xs font-normal text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
@@ -159,6 +164,9 @@ export function BacklogView() {
                             >
                                 <div className={`flex items-center ${t.status === 'Done' || t.archived ? 'line-through text-gray-500' : ''}`}>
                                     <span className={`inline-block w-2 h-2 rounded-full mr-2 ${t.status === 'Done' || t.archived ? 'bg-green-400' : 'bg-blue-300'}`}></span>
+                                    <span className="mr-2 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
+                                        {formatTaskLabel(t.sequence_number)}
+                                    </span>
                                     {t.title}
                                 </div>
                             </div>
@@ -228,9 +236,16 @@ export function BacklogView() {
                 className="flex-1 flex flex-col bg-blue-50/30 rounded-lg border border-blue-200 shadow-sm overflow-hidden min-h-[300px]"
             >
                 <div className="flex justify-between items-center p-4 border-b border-blue-100 bg-white">
-                    <h2 className="text-base font-bold text-blue-800 flex items-center">
-                        {plannedSprint ? '次のスプリント (計画中)' : 'スプリント計画'}
-                    </h2>
+                    <div>
+                        <h2 className="text-base font-bold text-blue-800 flex items-center">
+                            {plannedSprint ? '次のスプリント (計画中)' : 'スプリント計画'}
+                        </h2>
+                        {plannedSprint && (
+                            <p className="mt-1 text-xs font-semibold text-blue-600">
+                                {formatSprintLabel(plannedSprint)}
+                            </p>
+                        )}
+                    </div>
                     {!plannedSprint ? (
                         <Button size="sm" onClick={handleCreateSprint} variant="primary">
                             <CalendarPlus size={16} className="sm:mr-1" />

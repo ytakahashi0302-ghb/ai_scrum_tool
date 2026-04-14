@@ -126,6 +126,12 @@ pub fn run() {
             sql: include_str!("../migrations/18_retrospective_notes.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 19,
+            description: "entity_sequence_numbers",
+            sql: include_str!("../migrations/19_entity_sequence_numbers.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

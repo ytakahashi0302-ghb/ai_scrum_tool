@@ -12,6 +12,7 @@ export interface Project {
 export interface Sprint {
     id: string;
     project_id: string;
+    sequence_number: number;
     status: 'Planned' | 'Active' | 'Completed';
     started_at: number | null;
     completed_at: number | null;
@@ -20,6 +21,7 @@ export interface Sprint {
 
 export interface Story {
     id: string;
+    sequence_number: number;
     title: string;
     description: string | null;
     acceptance_criteria: string | null;
@@ -35,6 +37,7 @@ export interface Story {
 export interface Task {
     id: string;
     story_id: string;
+    sequence_number: number;
     title: string;
     description: string | null;
     status: TaskStatus;
@@ -129,4 +132,50 @@ export interface ProjectLlmUsageSummary {
     today_totals: LlmUsageAggregate;
     by_source: LlmUsageSourceBreakdown[];
     by_model: LlmUsageModelBreakdown[];
+}
+
+export interface RetroSession {
+    id: string;
+    project_id: string;
+    sprint_id: string;
+    status: 'draft' | 'in_progress' | 'completed';
+    summary: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export type RetroCategory = 'keep' | 'problem' | 'try';
+
+export interface RetroItem {
+    id: string;
+    retro_session_id: string;
+    category: RetroCategory;
+    content: string;
+    source: 'agent' | 'po' | 'sm' | 'user';
+    source_role_id: string | null;
+    is_approved: boolean;
+    sort_order: number;
+    created_at: string;
+}
+
+export interface RetroRule {
+    id: string;
+    project_id: string;
+    retro_item_id: string | null;
+    sprint_id: string | null;
+    content: string;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface ProjectNote {
+    id: string;
+    project_id: string;
+    sprint_id: string | null;
+    title: string;
+    content: string;
+    source: 'user' | 'po_assistant';
+    created_at: string;
+    updated_at: string;
 }

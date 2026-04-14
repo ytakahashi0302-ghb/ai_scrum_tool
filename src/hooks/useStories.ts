@@ -22,7 +22,7 @@ export function useStories() {
         }
     }, [currentProjectId]);
 
-    const addStory = useCallback(async (story: Omit<Story, 'created_at' | 'updated_at' | 'project_id'>) => {
+    const addStory = useCallback(async (story: Omit<Story, 'created_at' | 'updated_at' | 'project_id' | 'sequence_number'>) => {
         try {
             await invoke('add_story', {
                 id: story.id,

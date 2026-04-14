@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Board } from './Board';
 import { BacklogView } from './BacklogView';
-import { Kanban, ListTodo } from 'lucide-react';
+import { RetrospectiveView } from './RetrospectiveView';
+import { Kanban, ListTodo, RotateCcw } from 'lucide-react';
 import { useScrum } from '../../context/ScrumContext';
 
 export function ScrumDashboard() {
     const { loading } = useScrum();
-    const [activeTab, setActiveTab] = useState<'backlog' | 'board'>('backlog');
+    const [activeTab, setActiveTab] = useState<'backlog' | 'board' | 'retrospective'>('backlog');
 
     if (loading) {
         return (
@@ -43,12 +44,29 @@ export function ScrumDashboard() {
                         <Kanban size={18} className="mr-2" />
                         アクティブスプリント
                     </button>
+                    <button
+                        onClick={() => setActiveTab('retrospective')}
+                        className={`flex items-center pb-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+                            activeTab === 'retrospective'
+                                ? 'border-blue-500 text-blue-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        }`}
+                    >
+                        <RotateCcw size={18} className="mr-2" />
+                        レトロスペクティブ
+                    </button>
                 </nav>
             </div>
 
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto">
-                {activeTab === 'backlog' ? <BacklogView /> : <Board />}
+                {activeTab === 'backlog' ? (
+                    <BacklogView />
+                ) : activeTab === 'board' ? (
+                    <Board />
+                ) : (
+                    <RetrospectiveView />
+                )}
             </div>
         </div>
     );
