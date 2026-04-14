@@ -91,3 +91,9 @@
 
 - `rustup target list --installed` では `x86_64-pc-windows-msvc` のみが入っており、macOS / Linux target の cross-check はローカルでは実行できなかった
 - そのため `claude_runner.rs` の Unix ビルド復旧は、今回の `Sync` 制約除去と release workflow 再有効化を反映したうえで、GitHub Actions の macOS / Linux job で最終確認する前提にしている
+- その後、`v2.1.0` の GitHub Actions Release で Windows / macOS Intel / macOS Apple Silicon / Linux のフルアセット生成が成功し、`claude_runner.rs` の Unix ビルド経路も CI 上で正常に通過したことを確認した
+
+### クローズ確認
+
+- EPIC46 は `v2.1.0` のリリース成功をもって正式クローズとした
+- worktree merge 安定化と cross-platform release recovery の両目標が実運用レベルで確認できたため、次 Epic からは機能開発と UX 改善へフォーカスを戻せる状態になった

@@ -59,5 +59,5 @@ InspectionDeck から実施した実開発検証において、`Sample project` 
 - [x] `.gitignore` を触る task branch をマージしても、app 起因のローカル変更でマージが止まらない
 - [x] project root に未コミット変更がある場合、マージ前に理由が明確なエラーが返る
 - [x] macOS / Linux を含む Release ワークフローが再び定義されている
-- [ ] `claude_runner.rs` の Unix ビルドが `portable-pty` の `Sync` 制約で失敗しない
+- [x] `claude_runner.rs` の Unix ビルドが `portable-pty` の `Sync` 制約で失敗しない
 - [x] 必要な自動テストと手動確認手順が文書化されている
