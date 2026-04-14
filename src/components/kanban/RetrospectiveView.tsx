@@ -30,6 +30,7 @@ import {
     TeamRoleSetting,
 } from '../../types';
 import { Avatar } from '../ai/Avatar';
+import { RETRO_ITEMS_UPDATED_EVENT } from '../ai/NotesPanel';
 import { PO_ASSISTANT_ROLE_NAME, resolveAvatarForRoleName } from '../ai/avatarRegistry';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -234,6 +235,24 @@ export function RetrospectiveView() {
     useEffect(() => {
         const sessionId = currentSession?.id ?? null;
         void fetchItems(sessionId);
+    }, [currentSession?.id, fetchItems]);
+
+    useEffect(() => {
+        const handleRetroItemsUpdated = (event: Event) => {
+            const customEvent = event as CustomEvent<{ sessionId?: string }>;
+            const updatedSessionId = customEvent.detail?.sessionId ?? null;
+            if (!updatedSessionId || updatedSessionId !== currentSession?.id) {
+                return;
+            }
+
+            void fetchItems(updatedSessionId);
+        };
+
+        window.addEventListener(RETRO_ITEMS_UPDATED_EVENT, handleRetroItemsUpdated);
+
+        return () => {
+            window.removeEventListener(RETRO_ITEMS_UPDATED_EVENT, handleRetroItemsUpdated);
+        };
     }, [currentSession?.id, fetchItems]);
 
     useEffect(() => {

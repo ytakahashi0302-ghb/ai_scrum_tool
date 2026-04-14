@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TeamChatMessage } from '../../types';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { Send, User, Loader2, X, Trash2 } from 'lucide-react';
+import { Send, User, Loader2, X, Trash2, MessageSquare, FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ import { Avatar } from './Avatar';
 import { getAvatarDefinition, PO_ASSISTANT_ROLE_NAME, resolveAvatarImageSource } from './avatarRegistry';
 import { usePoAssistantAvatarImage } from '../../hooks/usePoAssistantAvatarImage';
 import { AiQuickSwitcher } from '../ui/settings/AiQuickSwitcher';
+import { NotesPanel } from './NotesPanel';
 
 interface PoAssistantSidebarProps {
     isOpen: boolean;
@@ -24,6 +25,7 @@ export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({ isOpen, 
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isFigureHidden, setIsFigureHidden] = useState(false);
+    const [activeTab, setActiveTab] = useState<'chat' | 'notes'>('chat');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const poAssistantFigure = getAvatarDefinition('po-assistant');
@@ -47,10 +49,10 @@ export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({ isOpen, 
 
     // Focus textarea when panel opens
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && activeTab === 'chat') {
             setTimeout(() => textareaRef.current?.focus(), 300);
         }
-    }, [isOpen]);
+    }, [activeTab, isOpen]);
 
     useEffect(() => {
         setIsFigureHidden(false);
@@ -164,6 +166,14 @@ export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({ isOpen, 
         }
     };
 
+    const tabButtonClass = (tab: 'chat' | 'notes') => (
+        `inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition-colors ${
+            activeTab === tab
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+        }`
+    );
+
     return (
         <div
             className={`relative flex flex-col h-full w-full bg-white transition-opacity duration-300 ease-in-out overflow-hidden border-none ${
@@ -182,7 +192,7 @@ export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({ isOpen, 
                             </div>
                         </div>
                         <div className="flex items-center gap-1">
-                            {messages.length > 0 && (
+                            {activeTab === 'chat' && messages.length > 0 && (
                                 <button
                                     onClick={handleClearHistory}
                                     className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
@@ -201,110 +211,137 @@ export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({ isOpen, 
                         </div>
                     </div>
 
-                    <div className="border-b border-gray-200 bg-white px-3 py-3 shrink-0">
+                    <div className="hidden" aria-hidden="true">
                         <AiQuickSwitcher compact />
                     </div>
 
-                    {/* Chat History */}
-                    <div className="relative flex-1 overflow-y-auto bg-gray-50/50">
-                        <div className="relative z-10 px-3 py-4 pr-6 xl:pr-[7.5rem] space-y-3">
-                        {messages.length === 0 && !isLoading && (
-                            <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
-                                <Avatar kind="po-assistant" size="lg" imageSrc={poAssistantAvatarImage} className="mb-4 shadow-sm" />
-                                <p className="text-sm font-medium text-gray-600 mb-2">
-                                    {PO_ASSISTANT_ROLE_NAME}
-                                </p>
-                                <p className="text-xs text-gray-400 leading-relaxed">
-                                    プロジェクト全体を俯瞰しながら、優先順位づけや判断整理を支援します。
-                                    バックログの優先順位、スプリントの進め方、要件の切り分けなどを気軽に相談してください。
-                                </p>
-                            </div>
-                        )}
+                    <div className="flex items-center gap-1 border-b border-gray-200 bg-white px-3 shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('chat')}
+                            className={tabButtonClass('chat')}
+                        >
+                            <MessageSquare size={14} />
+                            チャット
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('notes')}
+                            className={tabButtonClass('notes')}
+                        >
+                            <FileText size={14} />
+                            ふせん
+                        </button>
+                    </div>
 
-                        {messages.map((msg) => (
-                            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`flex gap-3 ${msg.role === 'user' ? 'max-w-[88%] flex-row-reverse' : 'max-w-full flex-row'} `}>
-                                    {msg.role === 'user' ? (
-                                        <div className="shrink-0 h-7 w-7 rounded-full flex items-center justify-center mt-0.5 bg-indigo-100 text-indigo-600">
-                                            <User size={14} />
+                    <div className="relative flex-1 min-h-0">
+                        <div className={`${activeTab === 'chat' ? 'flex h-full flex-col' : 'hidden'}`}>
+                            {/* Chat History */}
+                            <div className="relative flex-1 overflow-y-auto bg-gray-50/50">
+                                <div className="relative z-10 space-y-3 px-3 py-4 pr-6 xl:pr-[7.5rem]">
+                                    {messages.length === 0 && !isLoading && (
+                                        <div className="flex h-full flex-col items-center justify-center px-6 py-12 text-center">
+                                            <Avatar kind="po-assistant" size="lg" imageSrc={poAssistantAvatarImage} className="mb-4 shadow-sm" />
+                                            <p className="mb-2 text-sm font-medium text-gray-600">
+                                                {PO_ASSISTANT_ROLE_NAME}
+                                            </p>
+                                            <p className="text-xs leading-relaxed text-gray-400">
+                                                プロジェクト全体を俯瞰しながら、優先順位づけや判断整理を支援します。
+                                                バックログの優先順位、スプリントの進め方、要件の切り分けなどを気軽に相談してください。
+                                            </p>
                                         </div>
-                                    ) : (
-                                        <Avatar kind="po-assistant" size="md" imageSrc={poAssistantAvatarImage} className="mt-0.5 shadow-sm" />
                                     )}
-                                    <div className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
-                                        msg.role === 'user'
-                                            ? 'bg-indigo-600 text-white rounded-tr-md'
-                                            : 'bg-white border border-gray-200 text-gray-800 shadow-sm rounded-tl-md'
-                                    }`}>
-                                        {msg.role === 'user' ? (
-                                            <span className="whitespace-pre-wrap">{msg.content}</span>
-                                        ) : (
-                                            <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-code:text-[12px] prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-headings:text-sm prose-headings:mt-3 prose-headings:mb-1">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                    {msg.content}
-                                                </ReactMarkdown>
+
+                                    {messages.map((msg) => (
+                                        <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`flex gap-3 ${msg.role === 'user' ? 'max-w-[88%] flex-row-reverse' : 'max-w-full flex-row'} `}>
+                                                {msg.role === 'user' ? (
+                                                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
+                                                        <User size={14} />
+                                                    </div>
+                                                ) : (
+                                                    <Avatar kind="po-assistant" size="md" imageSrc={poAssistantAvatarImage} className="mt-0.5 shadow-sm" />
+                                                )}
+                                                <div className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                                                    msg.role === 'user'
+                                                        ? 'rounded-tr-md bg-indigo-600 text-white'
+                                                        : 'rounded-tl-md border border-gray-200 bg-white text-gray-800 shadow-sm'
+                                                }`}>
+                                                    {msg.role === 'user' ? (
+                                                        <span className="whitespace-pre-wrap">{msg.content}</span>
+                                                    ) : (
+                                                        <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-code:rounded prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-[12px] prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-headings:mt-3 prose-headings:mb-1 prose-headings:text-sm">
+                                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                                {msg.content}
+                                                            </ReactMarkdown>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        )}
-                                    </div>
+                                        </div>
+                                    ))}
+
+                                    {isLoading && (
+                                        <div className="flex justify-start">
+                                            <div className="flex max-w-full gap-3">
+                                                <Avatar kind="po-assistant" size="md" imageSrc={poAssistantAvatarImage} className="mt-0.5 shadow-sm" />
+                                                <div className="flex items-center gap-2 rounded-2xl rounded-tl-md border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                                                    <Loader2 size={14} className="animate-spin text-indigo-500" />
+                                                    <span className="text-xs text-gray-400">判断材料を整理しています...</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div ref={messagesEndRef} />
                                 </div>
                             </div>
-                        ))}
 
-                        {isLoading && (
-                            <div className="flex justify-start">
-                                <div className="flex gap-3 max-w-full">
-                                    <Avatar kind="po-assistant" size="md" imageSrc={poAssistantAvatarImage} className="mt-0.5 shadow-sm" />
-                                    <div className="rounded-2xl rounded-tl-md px-4 py-3 bg-white border border-gray-200 shadow-sm flex items-center gap-2">
-                                        <Loader2 size={14} className="animate-spin text-indigo-500" />
-                                        <span className="text-xs text-gray-400">判断材料を整理しています...</span>
-                                    </div>
-                                </div>
+                            {/* Input Area */}
+                            <div className="relative z-20 shrink-0 border-t border-gray-200 bg-white p-3">
+                                <form onSubmit={handleSend} className="relative">
+                                    <textarea
+                                        ref={textareaRef}
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyDown={handleKeyDown}
+                                        placeholder="メッセージを入力... (Ctrl+Enter で送信)"
+                                        className="min-h-[44px] max-h-[120px] w-full resize-none rounded-xl border border-gray-300 bg-gray-50 py-2.5 pl-3 pr-11 text-[13px] placeholder:text-gray-400 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        disabled={isLoading}
+                                        rows={1}
+                                        onInput={(e) => {
+                                            const target = e.target as HTMLTextAreaElement;
+                                            target.style.height = 'auto';
+                                            target.style.height = Math.min(target.scrollHeight, 120) + 'px';
+                                        }}
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={!input.trim() || isLoading}
+                                        className="absolute bottom-2 right-2 rounded-lg bg-indigo-600 p-1.5 text-white transition-colors hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600"
+                                    >
+                                        <Send size={14} />
+                                    </button>
+                                </form>
                             </div>
-                        )}
 
-                        <div ref={messagesEndRef} />
-                    </div>
-                    </div>
-
-                    {/* Input Area */}
-                    <div className="relative z-20 p-3 bg-white border-t border-gray-200 shrink-0">
-                        <form onSubmit={handleSend} className="relative">
-                            <textarea
-                                ref={textareaRef}
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                placeholder="メッセージを入力... (Ctrl+Enter で送信)"
-                                className="w-full pl-3 pr-11 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none min-h-[44px] max-h-[120px] text-[13px] bg-gray-50 placeholder:text-gray-400 transition-colors"
-                                disabled={isLoading}
-                                rows={1}
-                                onInput={(e) => {
-                                    const target = e.target as HTMLTextAreaElement;
-                                    target.style.height = 'auto';
-                                    target.style.height = Math.min(target.scrollHeight, 120) + 'px';
-                                }}
-                            />
-                            <button
-                                type="submit"
-                                disabled={!input.trim() || isLoading}
-                                className="absolute right-2 bottom-2 p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors"
-                            >
-                                <Send size={14} />
-                            </button>
-                        </form>
-                    </div>
-
-                    {!isFigureHidden && (
-                        <div className="pointer-events-none absolute bottom-[84px] right-[-34px] z-[1] hidden xl:block">
-                            <div className="absolute inset-x-6 bottom-10 top-14 rounded-full bg-emerald-300/14 blur-3xl" />
-                            <img
-                                src={poAssistantFigureSrc}
-                                alt={PO_ASSISTANT_ROLE_NAME}
-                                className="relative h-[365px] w-[210px] origin-bottom-right object-contain opacity-95 drop-shadow-[0_24px_30px_rgba(16,185,129,0.16)]"
-                                onError={() => setIsFigureHidden(true)}
-                            />
+                            {!isFigureHidden && (
+                                <div className="pointer-events-none absolute bottom-[84px] right-[-34px] z-[1] hidden xl:block">
+                                    <div className="absolute inset-x-6 bottom-10 top-14 rounded-full bg-emerald-300/14 blur-3xl" />
+                                    <img
+                                        src={poAssistantFigureSrc}
+                                        alt={PO_ASSISTANT_ROLE_NAME}
+                                        className="relative h-[365px] w-[210px] origin-bottom-right object-contain opacity-95 drop-shadow-[0_24px_30px_rgba(16,185,129,0.16)]"
+                                        onError={() => setIsFigureHidden(true)}
+                                    />
+                                </div>
+                            )}
                         </div>
-                    )}
+
+                        <div className={`${activeTab === 'notes' ? 'flex h-full min-h-0 flex-col' : 'hidden'}`}>
+                            <NotesPanel />
+                        </div>
+                    </div>
                 </>
             )}
         </div>
