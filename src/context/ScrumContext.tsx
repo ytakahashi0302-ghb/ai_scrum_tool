@@ -59,7 +59,7 @@ export function ScrumProvider({ children }: { children: ReactNode }) {
         loading: sprintsLoading,
         fetchSprints,
         createPlannedSprint,
-        startSprint,
+        startSprint: startSprintRaw,
         completeSprint
     } = useSprints();
 
@@ -92,6 +92,11 @@ export function ScrumProvider({ children }: { children: ReactNode }) {
 
     const refresh = async () => {
         await Promise.all([fetchStories(), fetchTasks(), fetchSprints(), fetchDependencies()]);
+    };
+
+    const startSprint = async (sprintId: string, durationMs: number) => {
+        await startSprintRaw(sprintId, durationMs);
+        await refresh();
     };
 
     const isTaskBlocked = (taskId: string) => isTaskBlockedRaw(taskId, tasks);

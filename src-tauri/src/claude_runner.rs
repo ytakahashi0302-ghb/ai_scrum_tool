@@ -633,7 +633,7 @@ async fn build_exit_payload(
     }
 }
 
-async fn record_claude_cli_usage_event(
+async fn record_cli_usage_event(
     app_handle: &AppHandle,
     session_info: &ActiveAgentSession,
     usage_context: &AgentUsageContext,
@@ -642,7 +642,7 @@ async fn record_claude_cli_usage_event(
 ) {
     let completed_at = current_timestamp_millis().unwrap_or(session_info.started_at);
 
-    if let Err(error) = llm_observability::record_claude_cli_usage(
+    if let Err(error) = llm_observability::record_cli_usage(
         app_handle,
         llm_observability::ClaudeCliUsageRecordInput {
             project_id: usage_context.project_id.clone(),
@@ -660,7 +660,8 @@ async fn record_claude_cli_usage_event(
     .await
     {
         log::warn!(
-            "Failed to record Claude CLI usage for session {}: {}",
+            "Failed to record {} usage for session {}: {}",
+            session_info.cli_type,
             session_info.task_id,
             error
         );
@@ -825,7 +826,7 @@ async fn execute_prompt_request(
                 AgentSessionEntry::Starting(_) => {}
             }
 
-            record_claude_cli_usage_event(
+            record_cli_usage_event(
                 &app_timeout,
                 &timeout_session_info,
                 &timeout_usage_context,
@@ -1126,7 +1127,7 @@ fn spawn_agent_process(
             } else {
                 "Process exited with error".to_string()
             };
-            tauri::async_runtime::block_on(record_claude_cli_usage_event(
+            tauri::async_runtime::block_on(record_cli_usage_event(
                 &app_wait,
                 &wait_session_info,
                 &wait_usage_context,
@@ -1310,7 +1311,7 @@ fn spawn_agent_process(
             } else {
                 "Process exited with error".to_string()
             };
-            tauri::async_runtime::block_on(record_claude_cli_usage_event(
+            tauri::async_runtime::block_on(record_cli_usage_event(
                 &app_clone,
                 &wait_session_info,
                 &wait_usage_context,

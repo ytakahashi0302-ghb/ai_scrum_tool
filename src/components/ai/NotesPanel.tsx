@@ -130,17 +130,19 @@ export function NotesPanel() {
     );
 
     const activeRetroSession = useMemo(() => {
-        const inProgress = sessions.find((session) => session.status === 'in_progress');
-        if (inProgress) {
-            return inProgress;
-        }
-
-        return sessions.find((session) => session.status === 'draft') ?? null;
+        // in_progress → draft → completed の優先順で選択
+        // completed セッションにも転記できるよう全ステータスを許可する
+        return (
+            sessions.find((session) => session.status === 'in_progress') ??
+            sessions.find((session) => session.status === 'draft') ??
+            sessions.find((session) => session.status === 'completed') ??
+            null
+        );
     }, [sessions]);
 
     const retroDisabledReason = retroLoading && sessions.length === 0
         ? 'レトロセッションを読み込み中です。'
-        : '進行中または下書きのレトロセッションがないため、まだ転記できません。';
+        : 'レトロセッションがないため、まだ転記できません。';
 
     useEffect(() => {
         if (!currentProjectId) {

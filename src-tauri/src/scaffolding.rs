@@ -327,12 +327,23 @@ fn apply_api_scaffold_plan(
         if target_dir.exists() {
             continue;
         }
-        std::fs::create_dir_all(&target_dir)
-            .map_err(|error| format!("ディレクトリ作成に失敗しました ({}): {}", target_dir.display(), error))?;
+        std::fs::create_dir_all(&target_dir).map_err(|error| {
+            format!(
+                "ディレクトリ作成に失敗しました ({}): {}",
+                target_dir.display(),
+                error
+            )
+        })?;
         created_dirs += 1;
         emit_scaffold_output(
             app_handle,
-            format!("created dir: {}", target_dir.strip_prefix(base_dir).unwrap_or(&target_dir).display()),
+            format!(
+                "created dir: {}",
+                target_dir
+                    .strip_prefix(base_dir)
+                    .unwrap_or(&target_dir)
+                    .display()
+            ),
         );
     }
 
@@ -344,7 +355,10 @@ fn apply_api_scaffold_plan(
                 app_handle,
                 format!(
                     "skip existing file: {}",
-                    target_file.strip_prefix(base_dir).unwrap_or(&target_file).display()
+                    target_file
+                        .strip_prefix(base_dir)
+                        .unwrap_or(&target_file)
+                        .display()
                 ),
             );
             continue;
@@ -372,14 +386,18 @@ fn apply_api_scaffold_plan(
             app_handle,
             format!(
                 "created file: {}",
-                target_file.strip_prefix(base_dir).unwrap_or(&target_file).display()
+                target_file
+                    .strip_prefix(base_dir)
+                    .unwrap_or(&target_file)
+                    .display()
             ),
         );
     }
 
     if created_dirs == 0 && created_files == 0 {
         return Err(
-            "AI スキャフォールド結果から新規ディレクトリ・ファイルを作成できませんでした。".to_string(),
+            "AI スキャフォールド結果から新規ディレクトリ・ファイルを作成できませんでした。"
+                .to_string(),
         );
     }
 
@@ -480,7 +498,10 @@ fn copy_scaffold_entry(source: &Path, destination: &Path) -> Result<(), String> 
     Ok(())
 }
 
-fn import_cli_scaffold_output(generated_root: &Path, project_root: &Path) -> Result<Vec<String>, String> {
+fn import_cli_scaffold_output(
+    generated_root: &Path,
+    project_root: &Path,
+) -> Result<Vec<String>, String> {
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(generated_root).map_err(|error| {
         format!(
@@ -943,13 +964,7 @@ pub async fn execute_scaffold_cli(
                     }
                 }
             }
-            let _ = app_handle.emit(
-                "scaffold_exit",
-                ScaffoldExitPayload {
-                    success,
-                    reason,
-                },
-            );
+            let _ = app_handle.emit("scaffold_exit", ScaffoldExitPayload { success, reason });
             Ok(success)
         }
         Err(e) => {
@@ -996,17 +1011,19 @@ pub async fn execute_scaffold_ai(
             cli_type,
             model,
             cwd,
-        } => crate::claude_runner::execute_cli_prompt_task(
-            app_handle,
-            state,
-            task_id,
-            tech_stack_info,
-            cwd,
-            cli_type,
-            model,
-            project_id,
-        )
-        .await,
+        } => {
+            crate::claude_runner::execute_cli_prompt_task(
+                app_handle,
+                state,
+                task_id,
+                tech_stack_info,
+                cwd,
+                cli_type,
+                model,
+                project_id,
+            )
+            .await
+        }
         ScaffoldAiTransport::Api {
             provider,
             api_key,
@@ -1196,7 +1213,9 @@ mod tests {
     #[test]
     fn is_reserved_scaffold_target_blocks_inception_files_and_dot_claude() {
         assert!(is_reserved_scaffold_target(Path::new("PRODUCT_CONTEXT.md")));
-        assert!(is_reserved_scaffold_target(Path::new(".claude/settings.json")));
+        assert!(is_reserved_scaffold_target(Path::new(
+            ".claude/settings.json"
+        )));
         assert!(!is_reserved_scaffold_target(Path::new("src/main.ts")));
     }
 
@@ -1219,9 +1238,13 @@ mod tests {
 
         fs::write(project_dir.path().join("PRODUCT_CONTEXT.md"), "# existing").expect("seed docs");
         fs::create_dir_all(generated_dir.path().join("src")).expect("src dir should exist");
-        fs::write(generated_dir.path().join("package.json"), "{}").expect("package file should exist");
-        fs::write(generated_dir.path().join("src").join("main.ts"), "console.log('ok');")
-            .expect("main file should exist");
+        fs::write(generated_dir.path().join("package.json"), "{}")
+            .expect("package file should exist");
+        fs::write(
+            generated_dir.path().join("src").join("main.ts"),
+            "console.log('ok');",
+        )
+        .expect("main file should exist");
 
         let result = import_cli_scaffold_output(generated_dir.path(), project_dir.path())
             .expect("import should succeed");
@@ -1237,7 +1260,8 @@ mod tests {
         let generated_dir = tempfile::tempdir().expect("generated tempdir should exist");
         let project_dir = tempfile::tempdir().expect("project tempdir should exist");
 
-        fs::write(generated_dir.path().join("package.json"), "{}").expect("generated package exists");
+        fs::write(generated_dir.path().join("package.json"), "{}")
+            .expect("generated package exists");
         fs::write(project_dir.path().join("package.json"), "{}").expect("project package exists");
 
         let error = import_cli_scaffold_output(generated_dir.path(), project_dir.path())

@@ -16,7 +16,7 @@ export function useStories() {
             setStories(result);
         } catch (err) {
             console.error('Failed to fetch stories', err);
-            toast.error(`ストーリーの取得に失敗しました: ${err}`);
+            toast.error(`PBIの取得に失敗しました: ${err}`);
         } finally {
             setLoading(false);
         }
@@ -36,7 +36,7 @@ export function useStories() {
             await fetchStories();
         } catch (err) {
             console.error('Failed to add story', err);
-            toast.error(`ストーリーの作成に失敗しました: ${err}`);
+            toast.error(`PBIの作成に失敗しました: ${err}`);
             throw err;
         }
     }, [fetchStories, currentProjectId]);
@@ -54,7 +54,7 @@ export function useStories() {
             await fetchStories();
         } catch (err) {
             console.error('Failed to update story', err);
-            toast.error(`ストーリーの更新に失敗しました: ${err}`);
+            toast.error(`PBIの更新に失敗しました: ${err}`);
             throw err;
         }
     }, [fetchStories]);
@@ -65,7 +65,7 @@ export function useStories() {
             await fetchStories();
         } catch (err) {
             console.error('Failed to delete story', err);
-            toast.error(`ストーリーの削除に失敗しました: ${err}`);
+            toast.error(`PBIの削除に失敗しました: ${err}`);
             throw err;
         }
     }, [fetchStories]);

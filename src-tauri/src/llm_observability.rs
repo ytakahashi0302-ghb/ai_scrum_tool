@@ -554,7 +554,9 @@ pub async fn record_llm_usage(
     Ok(result)
 }
 
-pub async fn record_claude_cli_usage(
+/// CLI（Claude / Gemini / Codex）の使用量を記録する汎用関数。
+/// 旧名 `record_claude_cli_usage` から改名。
+pub async fn record_cli_usage(
     app: &AppHandle,
     input: ClaudeCliUsageRecordInput,
 ) -> Result<(), String> {
@@ -570,7 +572,8 @@ pub async fn record_claude_cli_usage(
 
     let Some(project_id) = resolved_project_id else {
         log::warn!(
-            "Skipping Claude CLI usage record because no project_id could be resolved (task_id={:?})",
+            "Skipping {} usage record because no project_id could be resolved (task_id={:?})",
+            input.cli_type,
             input.task_id
         );
         return Ok(());
@@ -596,7 +599,7 @@ pub async fn record_claude_cli_usage(
             error_message: input.error_message,
             raw_usage_json: Some(json!({
                 "measurement_status": MEASUREMENT_UNAVAILABLE,
-                "reason": "Claude CLI usage is not machine-readable in the current integration"
+                "reason": "CLI usage is not machine-readable in the current integration"
             })),
         },
     )

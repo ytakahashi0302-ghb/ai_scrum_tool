@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Modal } from './ui/Modal';
 import { useSprintHistory, SprintHistoryData } from '../hooks/useSprintHistory';
+import { useProjectLabels } from '../hooks/useProjectLabels';
 import { Clock, CheckCircle, ChevronDown, ChevronRight, Activity } from 'lucide-react';
 
 interface HistoryModalProps {
@@ -10,6 +11,7 @@ interface HistoryModalProps {
 
 export function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
     const { historyData, loading, fetchHistory } = useSprintHistory();
+    const { formatSprintLabel } = useProjectLabels();
     const [expandedSprints, setExpandedSprints] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
@@ -84,9 +86,14 @@ export function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
                                                     <ChevronDown size={18} className="text-gray-400" /> :
                                                     <ChevronRight size={18} className="text-gray-400" />
                                                 }
-                                                <span className="font-semibold text-gray-900">
-                                                    {data.sprint.completed_at ? formatDate(data.sprint.completed_at as number) : '未完了'}
-                                                </span>
+                                                <div className="flex flex-col">
+                                                    <span className="font-semibold text-gray-900">
+                                                        {formatSprintLabel(data.sprint)}
+                                                    </span>
+                                                    <span className="text-xs text-gray-500">
+                                                        {data.sprint.completed_at ? formatDate(data.sprint.completed_at as number) : '未完了'}
+                                                    </span>
+                                                </div>
                                             </div>
 
                                             <div className="flex items-center gap-4 text-sm text-gray-500 pl-6 sm:pl-0">
@@ -98,7 +105,7 @@ export function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
                                                     <CheckCircle size={14} className="text-emerald-500" />
                                                     <span className="text-gray-700">{data.tasks.length} タスク</span>
                                                     {(data.stories.length > 0) && (
-                                                        <span className="text-gray-400 ml-1">({data.stories.length} ストーリー完了)</span>
+                                                        <span className="text-gray-400 ml-1">({data.stories.length} PBI完了)</span>
                                                     )}
                                                 </div>
                                             </div>
@@ -111,7 +118,7 @@ export function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
                                             {/* Stories Section (if any closed) */}
                                             {data.stories.length > 0 && (
                                                 <div className="pb-4">
-                                                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">完了したストーリー</h4>
+                                                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">完了したPBI</h4>
                                                     <ul className="space-y-2">
                                                         {data.stories.map(story => (
                                                             <li key={story.id} className="flex flex-col bg-white p-3 rounded shadow-sm border border-gray-100">
@@ -135,7 +142,7 @@ export function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
                                                                     {data.stories.some(s => s.id === task.story_id) === false && (
                                                                         <span className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                                                                             <span className="w-1.5 h-1.5 rounded-full bg-blue-300"></span>
-                                                                            アクティブなストーリーの一部
+                                                                            アクティブなPBIの一部
                                                                         </span>
                                                                     )}
                                                                 </div>

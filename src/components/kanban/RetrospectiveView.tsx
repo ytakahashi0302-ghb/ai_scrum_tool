@@ -9,13 +9,16 @@ import {
     Pencil,
     Plus,
     ShieldCheck,
+    Sparkles,
     Trash2,
     UserRound,
+    Wand2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import toast from 'react-hot-toast';
 import { useScrum } from '../../context/ScrumContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { useRetrospective } from '../../hooks/useRetrospective';
 import { useProjectLabels } from '../../hooks/useProjectLabels';
 import {
@@ -158,6 +161,7 @@ function SourceBadge({ item, roleLookup, poAssistantAvatarImage }: SourceBadgePr
 
 export function RetrospectiveView() {
     const { sprints } = useScrum();
+    const { currentProjectId } = useWorkspace();
     const { formatSprintLabel: formatSprintReference } = useProjectLabels();
     const {
         sessions,
@@ -186,7 +190,15 @@ export function RetrospectiveView() {
     const [editingContent, setEditingContent] = useState('');
     const [editingCategory, setEditingCategory] = useState<RetroCategory>('keep');
     const [workingKey, setWorkingKey] = useState<string | null>(null);
-    const [summaryOpen, setSummaryOpen] = useState(true);
+    // SMサマリは最初たたまれた状態
+    const [summaryOpen, setSummaryOpen] = useState(false);
+    const [agentLoading, setAgentLoading] = useState(false);
+    const [kptLoading, setKptLoading] = useState(false);
+    // true: スプリント内で稼働実績のないロールをスキップ（デフォルト）
+    const [skipInactiveRoles, setSkipInactiveRoles] = useState(true);
+    // 承認済み Try 一覧
+    const [approvedTryItems, setApprovedTryItems] = useState<RetroItem[]>([]);
+    const [approvedTryOpen, setApprovedTryOpen] = useState(false);
 
     const completedSprints = [...sprints]
         .filter((sprint) => sprint.status === 'Completed')
@@ -259,6 +271,14 @@ export function RetrospectiveView() {
         setOpenComposerCategory(null);
         setEditingItemId(null);
     }, [selectedSprintId]);
+
+    // 承認済み Try アイテムを取得（セッション/アイテム更新時に再取得）
+    useEffect(() => {
+        if (!currentProjectId) return;
+        void invoke<RetroItem[]>('get_approved_try_items', { projectId: currentProjectId })
+            .then(setApprovedTryItems)
+            .catch((err) => console.error('Failed to load approved try items', err));
+    }, [currentProjectId, items]);
 
     useEffect(() => {
         let cancelled = false;
@@ -390,6 +410,79 @@ export function RetrospectiveView() {
         }
     };
 
+    const handleStartRetro = async () => {
+        const session = await ensureSession();
+        if (!session) {
+            return;
+        }
+
+        if (teamRoles.length === 0) {
+            toast.error('チームロールが設定されていません。先にチーム構成を保存してください。');
+            return;
+        }
+
+        setAgentLoading(true);
+        const toastId = toast.loading(`エージェントレビューを生成中 (0/${teamRoles.length})`);
+        try {
+            let completed = 0;
+            for (const role of teamRoles) {
+                try {
+                    await invoke<RetroItem[]>('generate_agent_retro_review', {
+                        projectId: session.project_id,
+                        sprintId: session.sprint_id,
+                        retroSessionId: session.id,
+                        roleId: role.id,
+                        skipInactive: skipInactiveRoles,
+                    });
+                } catch (error) {
+                    console.error('generate_agent_retro_review failed', role.name, error);
+                    toast.error(`${role.name} のレビュー生成に失敗しました: ${String(error)}`);
+                }
+                completed += 1;
+                toast.loading(`エージェントレビューを生成中 (${completed}/${teamRoles.length})`, {
+                    id: toastId,
+                });
+            }
+            await fetchItems(session.id);
+            toast.success('エージェントレビューを取り込みました。', { id: toastId });
+        } catch (error) {
+            console.error('handleStartRetro failed', error);
+            toast.error(`レトロ開始に失敗しました: ${String(error)}`, { id: toastId });
+        } finally {
+            setAgentLoading(false);
+        }
+    };
+
+    const handleSynthesizeKpt = async () => {
+        if (!currentSession) {
+            toast.error('セッションが見つかりません。');
+            return;
+        }
+
+        if (items.length === 0) {
+            toast.error('まとめ対象のカードがありません。先にレトロ開始かカード追加を行ってください。');
+            return;
+        }
+
+        setKptLoading(true);
+        const toastId = toast.loading('SM がスプリントをまとめています...');
+        try {
+            await invoke<string>('synthesize_retro_kpt', {
+                projectId: currentSession.project_id,
+                sprintId: currentSession.sprint_id,
+                retroSessionId: currentSession.id,
+            });
+            await Promise.all([fetchSessions(), fetchItems(currentSession.id)]);
+            toast.success('SM サマリを生成しました。', { id: toastId });
+            setSummaryOpen(true); // 完了後はサマリを自動展開
+        } catch (error) {
+            console.error('handleSynthesizeKpt failed', error);
+            toast.error(`レトロの締めに失敗しました: ${String(error)}`, { id: toastId });
+        } finally {
+            setKptLoading(false);
+        }
+    };
+
     const handleApprove = async (item: RetroItem) => {
         if (item.is_approved) {
             return;
@@ -447,11 +540,69 @@ export function RetrospectiveView() {
                     </div>
 
                     {currentSession ? (
-                        <div className="flex items-center gap-2 self-start rounded-full border px-3 py-1.5 text-sm font-semibold lg:self-auto">
+                        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
                             <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${STATUS_STYLES[currentSession.status]}`}>
                                 {STATUS_LABELS[currentSession.status]}
                             </span>
-                            <span className="text-slate-500">セッション状態</span>
+                            <label className="flex cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={skipInactiveRoles}
+                                    onChange={(e) => {
+                                        const next = e.target.checked;
+                                        setSkipInactiveRoles(next);
+                                        if (!next) {
+                                            toast('全ロールをレビューします。LLM 使用量が増加します。', {
+                                                icon: '⚠️',
+                                            });
+                                        }
+                                    }}
+                                    className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                                    disabled={agentLoading || kptLoading}
+                                />
+                                稼働DEVのみ
+                            </label>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => void handleStartRetro()}
+                                disabled={
+                                    agentLoading ||
+                                    kptLoading ||
+                                    currentSession.status === 'completed'
+                                }
+                            >
+                                {agentLoading ? (
+                                    <>
+                                        <Loader2 size={14} className="mr-2 animate-spin" />
+                                        生成中...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Sparkles size={14} className="mr-2" />
+                                        レトロ開始
+                                    </>
+                                )}
+                            </Button>
+                            <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => void handleSynthesizeKpt()}
+                                disabled={agentLoading || kptLoading || items.length === 0}
+                            >
+                                {kptLoading ? (
+                                    <>
+                                        <Loader2 size={14} className="mr-2 animate-spin" />
+                                        まとめ中...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Wand2 size={14} className="mr-2" />
+                                        レトロを締める
+                                    </>
+                                )}
+                            </Button>
                         </div>
                     ) : (
                         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-600">
@@ -468,6 +619,40 @@ export function RetrospectiveView() {
                         </div>
                     ) : currentSession ? (
                         <div className="space-y-6">
+                            {/* SM サマリ — 上部に配置、デフォルトは折りたたみ */}
+                            <Card className="overflow-hidden border border-slate-200">
+                                <button
+                                    type="button"
+                                    className="flex w-full items-center justify-between gap-3 bg-slate-50 px-5 py-4 text-left"
+                                    onClick={() => setSummaryOpen((current) => !current)}
+                                >
+                                    <div>
+                                        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                                            SM Summary
+                                        </div>
+                                        <div className="mt-1 text-sm font-semibold text-slate-900">
+                                            Scrum Master 合成サマリ
+                                        </div>
+                                    </div>
+                                    {summaryOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                </button>
+                                {summaryOpen && (
+                                    <div className="border-t border-slate-200 bg-white px-5 py-4">
+                                        {currentSession.summary ? (
+                                            <div className="prose prose-sm max-w-none prose-slate prose-headings:mb-2 prose-p:leading-relaxed">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {currentSession.summary}
+                                                </ReactMarkdown>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm leading-6 text-slate-500">
+                                                SM 合成サマリはまだ生成されていません。「レトロを締める」を実行するとここに表示されます。
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </Card>
+
                             <div className="grid gap-4 xl:grid-cols-3">
                                 {(['keep', 'problem', 'try'] as RetroCategory[]).map((category) => {
                                     const style = COLUMN_STYLES[category];
@@ -678,38 +863,6 @@ export function RetrospectiveView() {
                                 })}
                             </div>
 
-                            <Card className="overflow-hidden border border-slate-200">
-                                <button
-                                    type="button"
-                                    className="flex w-full items-center justify-between gap-3 bg-slate-50 px-5 py-4 text-left"
-                                    onClick={() => setSummaryOpen((current) => !current)}
-                                >
-                                    <div>
-                                        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                                            SM Summary
-                                        </div>
-                                        <div className="mt-1 text-sm font-semibold text-slate-900">
-                                            Scrum Master 合成サマリ
-                                        </div>
-                                    </div>
-                                    {summaryOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                                </button>
-                                {summaryOpen && (
-                                    <div className="border-t border-slate-200 bg-white px-5 py-4">
-                                        {currentSession.summary ? (
-                                            <div className="prose prose-sm max-w-none prose-slate prose-headings:mb-2 prose-p:leading-relaxed">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                    {currentSession.summary}
-                                                </ReactMarkdown>
-                                            </div>
-                                        ) : (
-                                            <p className="text-sm leading-6 text-slate-500">
-                                                SM 合成サマリはまだ生成されていません。Epic 51 でこのパネルに統合結果が表示されます。
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-                            </Card>
                         </div>
                     ) : (
                         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
@@ -717,7 +870,7 @@ export function RetrospectiveView() {
                                 レトロセッションがまだ作成されていません
                             </h3>
                             <p className="mt-2 text-sm text-slate-600">
-                                Epic 47 の自動生成対象外だったスプリントでも、ここから手動でレトロを開始できます。
+                                スプリントが完了後、ここから手動でレトロを開始できます。
                             </p>
                             <Button
                                 type="button"
@@ -738,6 +891,64 @@ export function RetrospectiveView() {
                     )}
                 </div>
             </Card>
+
+            {/* 承認済み Try 一覧（全スプリント横断）*/}
+            {approvedTryItems.length > 0 && (
+                <Card className="overflow-hidden border border-emerald-200">
+                    <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 bg-emerald-50 px-5 py-4 text-left"
+                        onClick={() => setApprovedTryOpen((prev) => !prev)}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                                <CheckCircle2 size={16} />
+                            </div>
+                            <div>
+                                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
+                                    Approved Try
+                                </div>
+                                <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                                    承認済み Try 一覧
+                                    <span className="ml-2 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                        {approvedTryItems.length}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        {approvedTryOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                    </button>
+                    {approvedTryOpen && (
+                        <div className="divide-y divide-emerald-100 border-t border-emerald-200 bg-white">
+                            {approvedTryItems.map((item) => {
+                                const session = sessions.find((s) => s.id === item.retro_session_id);
+                                const sprint = session
+                                    ? sprints.find((sp) => sp.id === session.sprint_id)
+                                    : undefined;
+                                const sprintLabel = sprint
+                                    ? formatSprintReference(sprint)
+                                    : session
+                                      ? 'Sprint'
+                                      : '—';
+
+                                return (
+                                    <div key={item.id} className="flex items-start gap-4 px-5 py-4">
+                                        <span className="mt-0.5 shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                            {sprintLabel}
+                                        </span>
+                                        <p className="flex-1 whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                                            {item.content}
+                                        </p>
+                                        <span className="shrink-0 text-xs text-slate-400">
+                                            {new Date(item.created_at).toLocaleDateString('ja-JP')}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </Card>
+            )}
         </div>
     );
 }

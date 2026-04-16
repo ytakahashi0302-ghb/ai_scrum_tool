@@ -20,7 +20,7 @@ function normalizeProjectName(name: string | null | undefined) {
 export function formatStoryLabel(
     sequenceNumber: number | null | undefined,
 ) {
-    return formatSequenceLabel('UserStory', sequenceNumber);
+    return formatSequenceLabel('PBI', sequenceNumber);
 }
 
 export function formatTaskLabel(

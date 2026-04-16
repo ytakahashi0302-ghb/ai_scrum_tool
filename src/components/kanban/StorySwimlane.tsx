@@ -159,7 +159,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks, roleLoo
                     acceptance_criteria: story.acceptance_criteria || '',
                     priority: story.priority ?? 3
                 }}
-                title="ストーリーを編集"
+                title="PBIを編集"
             />
         </div>
     );

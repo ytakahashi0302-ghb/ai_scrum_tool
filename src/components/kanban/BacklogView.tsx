@@ -220,7 +220,7 @@ export function BacklogView() {
                 >
                     {backlogStories.length === 0 && tasks.filter(t => !t.sprint_id && !t.archived).length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm p-4 text-center pointer-events-none">
-                            <p>バックログは空です。<br/>ストーリーを作成して、プロジェクトを計画しましょう。</p>
+                            <p>バックログは空です。<br/>PBIを作成して、プロジェクトを計画しましょう。</p>
                         </div>
                     ) : (
                         backlogStories.map(story => {
@@ -265,11 +265,11 @@ export function BacklogView() {
                     {!plannedSprint ? (
                         <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm p-4 text-center pointer-events-none">
                             <CalendarPlus className="w-8 h-8 opacity-20 mb-2 text-blue-400" />
-                            <p>スプリントを作成すると、<br/>バックログからストーリーを割り当てられます。</p>
+                            <p>スプリントを作成すると、<br/>バックログからPBIを割り当てられます。</p>
                         </div>
                     ) : plannedStories.length === 0 && tasks.filter(t => t.sprint_id === plannedSprint.id).length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-blue-400/80 text-sm p-4 border-2 border-dashed border-blue-200 rounded-lg bg-blue-50/50 pointer-events-none">
-                            <p>左のバックログから<br/>矢印ボタンでストーリーを追加してください</p>
+                            <p>左のバックログから<br/>矢印ボタンでPBIを追加してください</p>
                         </div>
                     ) : (
                         plannedStories.map(story => {
@@ -301,7 +301,7 @@ export function BacklogView() {
                 onDelete={editingStory ? async () => {
                     await deleteStory(editingStory.id);
                 } : undefined}
-                title={editingStory ? "ストーリーを編集" : "ストーリーを追加"}
+                title={editingStory ? "PBIを編集" : "PBIを追加"}
             />
         </div>
     );

@@ -13,7 +13,15 @@
       "Bash(powershell.exe -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; python3 -c \"\"import sqlite3; conn = sqlite3.connect\\(''C:/Users/green/AppData/Roaming/com.vicara.app/vicara.db''\\); cur = conn.cursor\\(\\); cur.execute\\(\\\\\"\"SELECT name FROM sqlite_master WHERE type=''table'' ORDER BY name\\\\\"\"\\); print\\(cur.fetchall\\(\\)\\); conn.close\\(\\)\"\"\")",
       "Bash(python3 -c \":*)",
       "Bash(powershell.exe -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; vssadmin list shadows 2>&1 | Select-String -Pattern ''Shadow Copy|Creation Time'' | Select-Object -First 10\")",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(cargo build:*)",
+      "Bash(npm run:*)",
+      "Bash(grep -n \"sequence_number\" /c/Users/green/Documents/workspaces/ai-scrum-tool/src-tauri/migrations/*.sql)",
+      "Bash(grep -v \"//.*スプリント\")",
+      "Bash(grep -v \"//.*ストーリー\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k,':', d[k].get\\('description',''\\)\\) for k in d]\")",
+      "Bash(cat /c/Users/green/Documents/workspaces/ai-scrum-tool/src-tauri/migrations/*.sql)",
+      "Bash(git add:*)"
     ]
   }
 }

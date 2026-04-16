@@ -27,7 +27,7 @@ export function useTasks() {
             return await invoke<Task[]>('get_tasks_by_story_id', { storyId, projectId: currentProjectId });
         } catch (err) {
             console.error('Failed to fetch tasks by story id', err);
-            toast.error(`ストーリー別タスクの取得に失敗しました: ${err}`);
+            toast.error(`PBI別タスクの取得に失敗しました: ${err}`);
             return [];
         }
     }, [currentProjectId]);

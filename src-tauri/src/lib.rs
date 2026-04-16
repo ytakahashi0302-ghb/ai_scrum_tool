@@ -139,6 +139,24 @@ pub fn run() {
             sql: include_str!("../migrations/20_agent_retro_logs.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 21,
+            description: "retro_llm_source",
+            sql: include_str!("../migrations/21_retro_llm_source.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 22,
+            description: "cli_transport_kinds",
+            sql: include_str!("../migrations/22_cli_transport_kinds.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 23,
+            description: "fix_sprint_sequence_numbers",
+            sql: include_str!("../migrations/23_fix_sprint_sequence_numbers.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -180,6 +198,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ai::generate_tasks_from_story,
             ai::refine_idea,
+            ai::generate_agent_retro_review,
+            ai::synthesize_retro_kpt,
             cli_detection::detect_installed_clis,
             git::check_git_installed,
             db::get_projects,
@@ -209,6 +229,7 @@ pub fn run() {
             db::update_retro_session,
             db::delete_retro_session,
             db::get_retro_items,
+            db::get_approved_try_items,
             db::add_retro_item,
             db::update_retro_item,
             db::delete_retro_item,

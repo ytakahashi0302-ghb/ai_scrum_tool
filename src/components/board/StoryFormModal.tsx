@@ -98,7 +98,7 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
                     label="詳細説明"
                     value={formData.description}
                     onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
-                    placeholder="ストーリーの詳細な背景や説明..."
+                    placeholder="PBIの詳細な背景や説明..."
                     rows={4}
                 />
 
@@ -132,7 +132,7 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
                                 type="button"
                                 variant="danger"
                                 onClick={async () => {
-                                    if (window.confirm("このストーリーを削除してもよろしいですか？（紐づくタスクも削除されます）")) {
+                                    if (window.confirm("このPBIを削除してもよろしいですか？（紐づくタスクも削除されます）")) {
                                         await onDelete();
                                         onClose();
                                     }

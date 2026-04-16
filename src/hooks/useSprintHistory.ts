@@ -27,16 +27,18 @@ export function useSprintHistory() {
             // 3. アーカイブされた全Taskを取得
             const archivedTasks = await invoke<Task[]>('get_archived_tasks', { projectId: currentProjectId });
 
-            // 4. スプリントごとにデータをまとめる
-            const aggregatedData: SprintHistoryData[] = sprints.map(sprint => {
-                const sprintStories = archivedStories.filter(story => story.sprint_id === sprint.id);
-                const sprintTasks = archivedTasks.filter(task => task.sprint_id === sprint.id);
-                return {
-                    sprint,
-                    stories: sprintStories,
-                    tasks: sprintTasks
-                };
-            });
+            // 4. 完了スプリントのみに絞り込んでデータをまとめる
+            const aggregatedData: SprintHistoryData[] = sprints
+                .filter(sprint => sprint.status === 'Completed')
+                .map(sprint => {
+                    const sprintStories = archivedStories.filter(story => story.sprint_id === sprint.id);
+                    const sprintTasks = archivedTasks.filter(task => task.sprint_id === sprint.id);
+                    return {
+                        sprint,
+                        stories: sprintStories,
+                        tasks: sprintTasks
+                    };
+                });
 
             setHistoryData(aggregatedData);
         } catch (error) {

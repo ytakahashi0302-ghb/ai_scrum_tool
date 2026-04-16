@@ -33,8 +33,13 @@ export function Board() {
 
     const activeTasks = useMemo(() => {
         if (!activeSprint) return [];
-        return tasks.filter(t => t.sprint_id === activeSprint.id);
-    }, [tasks, activeSprint]);
+        // sprint_id が明示設定されているタスク OR アクティブスプリントのストーリーに属するタスク
+        // (PO経由でスプリント中に追加されたタスクは story_id のみ持つ場合がある)
+        const activeStoryIds = new Set(activeStories.map(s => s.id));
+        return tasks.filter(t =>
+            t.sprint_id === activeSprint.id || activeStoryIds.has(t.story_id)
+        );
+    }, [tasks, activeSprint, activeStories]);
 
     useEffect(() => {
         let cancelled = false;

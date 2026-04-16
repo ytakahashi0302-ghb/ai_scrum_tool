@@ -1539,10 +1539,12 @@ pub async fn complete_sprint(
         Some((id,)) => id,
         None => {
             let new_id = uuid::Uuid::new_v4().to_string();
-            let query_create =
-                "INSERT INTO sprints (id, project_id, status) VALUES (?, ?, 'Planned')";
+            // sequence_number をサブクエリで採番（同一トランザクション内で実行）
+            let query_create = "INSERT INTO sprints (id, project_id, sequence_number, status) \
+                VALUES (?, ?, (SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM sprints WHERE project_id = ?), 'Planned')";
             let _ = sqlx::query(query_create)
                 .bind(&new_id)
+                .bind(&project_id)
                 .bind(&project_id)
                 .execute(&mut *tx)
                 .await
@@ -1701,6 +1703,24 @@ pub async fn get_retro_items(
     select_query::<RetroItem>(&app, query, values).await
 }
 
+/// プロジェクト全体の承認済み Try アイテムを取得する（全スプリント横断）。
+#[tauri::command]
+pub async fn get_approved_try_items(
+    app: AppHandle,
+    project_id: String,
+) -> Result<Vec<RetroItem>, String> {
+    let query = r#"
+        SELECT ri.id, ri.retro_session_id, ri.category, ri.content,
+               ri.source, ri.source_role_id, ri.is_approved, ri.sort_order, ri.created_at
+        FROM retro_items ri
+        JOIN retro_sessions rs ON ri.retro_session_id = rs.id
+        WHERE rs.project_id = ? AND ri.is_approved = 1 AND ri.category = 'try'
+        ORDER BY ri.created_at DESC
+    "#;
+    let values = vec![serde_json::to_value(project_id).unwrap()];
+    select_query::<RetroItem>(&app, query, values).await
+}
+
 #[tauri::command]
 pub async fn add_retro_item(
     app: AppHandle,
@@ -1768,6 +1788,21 @@ pub async fn delete_retro_item(app: AppHandle, id: String) -> Result<QueryResult
     let query = "DELETE FROM retro_items WHERE id = ?";
     let values = vec![serde_json::to_value(id).unwrap()];
     execute_query(&app, query, values).await
+}
+
+/// KPT合成の再実行時に前回の SM アイテムをクリアするための内部ヘルパー。
+/// Tauri コマンドとして公開しない。
+pub async fn delete_retro_items_by_source(
+    app: &AppHandle,
+    session_id: &str,
+    source: &str,
+) -> Result<QueryResult, String> {
+    let query = "DELETE FROM retro_items WHERE retro_session_id = ? AND source = ?";
+    let values = vec![
+        serde_json::to_value(session_id).unwrap(),
+        serde_json::to_value(source).unwrap(),
+    ];
+    execute_query(app, query, values).await
 }
 
 #[tauri::command]
@@ -1912,6 +1947,100 @@ pub async fn delete_project_note(app: AppHandle, id: String) -> Result<QueryResu
     let query = "DELETE FROM project_notes WHERE id = ?";
     let values = vec![serde_json::to_value(id).unwrap()];
     execute_query(&app, query, values).await
+}
+
+// ------------------------------------------------------------------------------------------------
+// Epic 51: Retrospective aggregation helpers
+// ------------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct SprintLlmUsageSummary {
+    pub total_events: i64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub total_cost_usd: f64,
+    pub failure_count: i64,
+}
+
+// TODO(epic51): role_id 連結に切り替える。現状は agent_retro_runs.role_name が文字列で格納されるため
+// ロール改名時に過去 run がヒットしなくなる。
+pub async fn get_agent_retro_runs_by_sprint_and_role(
+    app: &AppHandle,
+    sprint_id: &str,
+    role_name: &str,
+) -> Result<Vec<AgentRetroRun>, String> {
+    let query = r#"
+        SELECT *
+        FROM agent_retro_runs
+        WHERE sprint_id = ? AND role_name = ?
+        ORDER BY started_at ASC
+    "#;
+    let values = vec![
+        serde_json::to_value(sprint_id).unwrap(),
+        serde_json::to_value(role_name).unwrap(),
+    ];
+    select_query::<AgentRetroRun>(app, query, values).await
+}
+
+pub async fn get_tasks_by_sprint_and_role(
+    app: &AppHandle,
+    sprint_id: &str,
+    role_id: &str,
+) -> Result<Vec<Task>, String> {
+    let query = r#"
+        SELECT *
+        FROM tasks
+        WHERE sprint_id = ? AND assigned_role_id = ? AND archived = 0
+        ORDER BY priority ASC, sequence_number ASC, id ASC
+    "#;
+    let values = vec![
+        serde_json::to_value(sprint_id).unwrap(),
+        serde_json::to_value(role_id).unwrap(),
+    ];
+    select_query::<Task>(app, query, values).await
+}
+
+pub async fn get_project_notes_by_sprint(
+    app: &AppHandle,
+    project_id: &str,
+    sprint_id: &str,
+) -> Result<Vec<ProjectNote>, String> {
+    let query = r#"
+        SELECT *
+        FROM project_notes
+        WHERE project_id = ? AND sprint_id = ?
+        ORDER BY created_at DESC, id DESC
+    "#;
+    let values = vec![
+        serde_json::to_value(project_id).unwrap(),
+        serde_json::to_value(sprint_id).unwrap(),
+    ];
+    select_query::<ProjectNote>(app, query, values).await
+}
+
+pub async fn get_llm_usage_summary_by_sprint(
+    app: &AppHandle,
+    sprint_id: &str,
+) -> Result<SprintLlmUsageSummary, String> {
+    let query = r#"
+        SELECT
+            COUNT(*) AS total_events,
+            COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+            COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+            COALESCE(SUM(estimated_cost_usd), 0.0) AS total_cost_usd,
+            COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS failure_count
+        FROM llm_usage_events
+        WHERE sprint_id = ?
+    "#;
+    let values = vec![serde_json::to_value(sprint_id).unwrap()];
+    let mut rows = select_query::<SprintLlmUsageSummary>(app, query, values).await?;
+    Ok(rows.pop().unwrap_or(SprintLlmUsageSummary {
+        total_events: 0,
+        total_input_tokens: 0,
+        total_output_tokens: 0,
+        total_cost_usd: 0.0,
+        failure_count: 0,
+    }))
 }
 
 #[tauri::command]
