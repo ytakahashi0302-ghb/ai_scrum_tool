@@ -28,7 +28,8 @@ export type SettingsSectionId =
     | 'ai-provider'
     | 'po-assistant'
     | 'team'
-    | 'analytics';
+    | 'analytics'
+    | 'retro-rules';
 
 export type AiProvider = 'anthropic' | 'gemini' | 'openai' | 'ollama';
 export type PoAssistantTransport = 'api' | 'cli';

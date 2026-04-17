@@ -148,7 +148,7 @@ export function SprintTimer() {
                             </Button>
                         )}
 
-                        {(status === 'RUNNING' || status === 'PAUSED') && (
+                        {(status === 'RUNNING' || status === 'PAUSED' || status === 'TIME_UP') && (
                             <Button onClick={handleComplete} disabled={isArchiving} size="sm" className="bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white h-8">
                                 {isArchiving ? <Loader2 size={14} className="mr-1.5 animate-spin" /> : <CheckCircle size={14} className="mr-1.5" />}
                                 完了にする
@@ -195,7 +195,7 @@ export function SprintTimer() {
 
             {/* Time's Up Modal */}
             {showTimeUpModal && (
-                <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-[100] animate-in fade-in">
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[100] animate-in fade-in">
                     <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center animate-in zoom-in-95 duration-200">
                         <div className="mx-auto bg-red-100 w-20 h-20 rounded-full flex items-center justify-center mb-6">
                             <AlertTriangle size={40} className="text-red-600" />

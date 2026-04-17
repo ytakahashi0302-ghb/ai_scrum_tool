@@ -26,6 +26,7 @@ import { type SettingsSectionId, useSettings } from './SettingsContext';
 import { AiProviderSection } from './sections/AiProviderSection';
 import { PoAssistantSection } from './sections/PoAssistantSection';
 import { ProjectSection } from './sections/ProjectSection';
+import { RetroRulesSection } from './sections/RetroRulesSection';
 
 interface SettingsShellProps {
     onClose: () => void;
@@ -76,6 +77,16 @@ const SETTINGS_CATEGORIES: SettingsSidebarCategory[] = [
                 id: 'analytics',
                 label: 'アナリティクス',
                 description: 'LLM 使用量と概算コスト',
+            },
+        ],
+    },
+    {
+        label: 'レトロ連携',
+        sections: [
+            {
+                id: 'retro-rules',
+                label: 'レトロルール',
+                description: 'エージェントへのルール注入管理',
             },
         ],
     },
@@ -227,6 +238,15 @@ export function SettingsShell({
                         description="プロジェクト全体とアクティブスプリントにおける LLM 利用量、概算コストを確認します。"
                     >
                         <AnalyticsTab embedded projectId={settings.currentProjectId} />
+                    </SettingsSection>
+                );
+            case 'retro-rules':
+                return (
+                    <SettingsSection
+                        title="レトロルール"
+                        description="レトロスペクティブの Try から作成したルールを管理します。ON のルールはエージェントタスク実行時のプロンプトに自動注入されます。"
+                    >
+                        <RetroRulesSection />
                     </SettingsSection>
                 );
         }

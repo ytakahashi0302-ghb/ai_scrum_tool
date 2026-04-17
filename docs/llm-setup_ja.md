@@ -123,4 +123,4 @@ codex login
 
 ---
 
-← [README（日本語）](../README_ja.md) に戻る
+← [README（日本語）](../README.md) に戻る

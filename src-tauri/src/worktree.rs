@@ -821,8 +821,8 @@ pub async fn stop_preview_server(
 }
 
 #[tauri::command]
-pub async fn open_preview_in_browser(app_handle: AppHandle, port: u16) -> Result<(), String> {
-    preview::open_preview_in_browser(&app_handle, port)
+pub async fn open_preview_in_browser(app_handle: AppHandle, url: String) -> Result<(), String> {
+    preview::open_preview_in_browser(&app_handle, &url)
 }
 
 #[tauri::command]

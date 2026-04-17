@@ -1452,7 +1452,35 @@ pub async fn execute_claude_task(
     )
     .await?;
 
-    let prompt = build_task_prompt(&task, &role, additional_context.as_deref());
+    // アクティブなレトロルールを取得してプロンプトに注入する
+    let rules_section = {
+        let all_rules = db::get_retro_rules(app_handle.clone(), task.project_id.clone())
+            .await
+            .unwrap_or_default();
+        let active_rules: Vec<_> = all_rules.into_iter().filter(|r| r.is_active).collect();
+        if active_rules.is_empty() {
+            String::new()
+        } else {
+            let rules_text = active_rules
+                .iter()
+                .map(|r| format!("- {}", r.content))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "# 過去のレトロスペクティブからのチームルール\n以下のルールを遵守してください:\n{}",
+                rules_text
+            )
+        }
+    };
+
+    let combined_context = match (additional_context.as_deref(), rules_section.is_empty()) {
+        (Some(ctx), false) => Some(format!("{}\n\n{}", ctx, rules_section)),
+        (Some(ctx), true) => Some(ctx.to_string()),
+        (None, false) => Some(rules_section),
+        (None, true) => None,
+    };
+
+    let prompt = build_task_prompt(&task, &role, combined_context.as_deref());
     let usage_context = AgentUsageContext {
         source_kind: "task_execution".to_string(),
         project_id: Some(task.project_id.clone()),

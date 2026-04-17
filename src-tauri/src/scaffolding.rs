@@ -703,7 +703,16 @@ ARCHITECTURE.md の内容:
 1. 適切なディレクトリ構造を作成すること（src/, tests/, docs/ など）
 2. 必要な設定ファイルを生成すること（.gitignore, README.md など）
 3. エントリポイントとなるファイルを最低限作成すること
-4. 既存の PRODUCT_CONTEXT.md, ARCHITECTURE.md, Rule.md は絶対に変更・削除しないこと"#,
+4. 既存の PRODUCT_CONTEXT.md, ARCHITECTURE.md, Rule.md は絶対に変更・削除しないこと
+5. 【フルスタック規約】バックエンド（API / サーバー）とフロントエンド（Vite / Next.js / Nuxt など SPA/SSR）を同時に含む構成を生成する場合は、以下を必ず満たすこと:
+   - ルート直下の `package.json` に `concurrently` を devDependencies として追加する
+   - ルートの scripts に以下を定義し、`npm run dev` 単発で両方が起動するようにする:
+     * `"dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\""`
+     * `"dev:api"`: バックエンドの起動コマンド（例: `"tsx watch src/index.ts"` や `"node --watch src/server.js"`）
+     * `"dev:web"`: フロントエンドの起動コマンド（例: `"npm --prefix frontend run dev"` や `"npm run dev --workspace=frontend"`）
+   - フロントエンド側のディレクトリ（例: `frontend/`）にも独自の `package.json` と `dev` スクリプト（Vite 等）を配置する
+   - バックエンドは **development モードでは `frontend/dist` を serve しない**こと。開発時は Vite 等の dev サーバーに任せ、必要なら CORS 許可 or プロキシ設定（`vite.config.ts` の `server.proxy`）で API 呼び出しを中継する
+   - これらを怠ると `npm run dev` がバックエンドしか起動せず、Vicara のプレビュー（Vite の `Local: http://...:PORT/` 出力を待つ）が必ずタイムアウトする"#,
         lang, fw, meta, stack.raw_content
     )
 }
@@ -727,7 +736,17 @@ async fn execute_api_scaffold_generation(
 - 絶対パス、..、.claude 配下、PRODUCT_CONTEXT.md、ARCHITECTURE.md、Rule.md、AGENT.md は絶対に含めない
 - 既存の Inception ドキュメントを参照しつつ、それら自体は変更しない
 - content に markdown code fence を含めない
-- 実行可能な最小構成を優先し、不要に大量のファイルを作らない"#;
+- 実行可能な最小構成を優先し、不要に大量のファイルを作らない
+
+フルスタック規約（バックエンド + フロントエンドを同時に含む構成の場合は必ず遵守）:
+- ルート直下 `package.json` の devDependencies に `concurrently` を追加する
+- ルート `package.json` の scripts には必ず以下を含める:
+    "dev":     "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\""
+    "dev:api": バックエンド起動コマンド（例: "tsx watch src/index.ts"）
+    "dev:web": フロントエンド起動コマンド（例: "npm --prefix frontend run dev"）
+- フロントエンド側ディレクトリ（例: frontend/）には独自の package.json と Vite/Next.js 等の `dev` スクリプトを配置する
+- バックエンドは **development モードでは frontend/dist を serve しない**。開発時は Vite の dev サーバーに委譲し、必要なら vite.config.ts の server.proxy で API を中継する
+- この規約を守らないと `npm run dev` がバックエンドのみ起動し、Vicara のプレビュー（Vite の `Local: http://...:PORT/` ログ検出）がタイムアウトする"#;
 
     let user_prompt = format!(
         r#"以下の技術スタック情報に基づき、初期 scaffolding 用の JSON を生成してください。

@@ -21,7 +21,10 @@
       "Bash(grep -v \"//.*ストーリー\")",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k,':', d[k].get\\('description',''\\)\\) for k in d]\")",
       "Bash(cat /c/Users/green/Documents/workspaces/ai-scrum-tool/src-tauri/migrations/*.sql)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash([)"
     ]
   }
 }

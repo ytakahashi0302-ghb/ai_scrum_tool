@@ -9,6 +9,7 @@ import {
     Loader2,
     Pencil,
     Plus,
+    Shield,
     ShieldCheck,
     Sparkles,
     Trash2,
@@ -22,6 +23,7 @@ import { useScrum } from '../../context/ScrumContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useRetrospective } from '../../hooks/useRetrospective';
 import { useProjectLabels } from '../../hooks/useProjectLabels';
+import { useRetroRules } from '../../hooks/useRetroRules';
 import {
     usePoAssistantAvatarImage,
     VICARA_SETTINGS_UPDATED_EVENT,
@@ -177,6 +179,7 @@ export function RetrospectiveView() {
         approveItem,
     } = useRetrospective();
     const poAssistantAvatarImage = usePoAssistantAvatarImage();
+    const { rules, fetchRules, addRule, updateRule } = useRetroRules();
 
     const [teamRoles, setTeamRoles] = useState<TeamRoleSetting[]>([]);
     const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null);
@@ -291,6 +294,11 @@ export function RetrospectiveView() {
             .then(setApprovedTryItems)
             .catch((err) => console.error('Failed to load approved try items', err));
     }, [currentProjectId, items]);
+
+    // ルール一覧を取得（承認済みTryが変わったときも再取得）
+    useEffect(() => {
+        void fetchRules();
+    }, [fetchRules, approvedTryItems]);
 
     useEffect(() => {
         let cancelled = false;
@@ -503,6 +511,23 @@ export function RetrospectiveView() {
         setWorkingKey(`approve-${item.id}`);
         try {
             await approveItem(item.id);
+        } finally {
+            setWorkingKey(null);
+        }
+    };
+
+    // 承認済みTryアイテムのルールON/OFFトグル
+    const handleRuleToggle = async (item: RetroItem, enable: boolean) => {
+        const existingRule = rules.find((r) => r.retro_item_id === item.id);
+        setWorkingKey(`rule-${item.id}`);
+        try {
+            if (!existingRule) {
+                if (enable) {
+                    await addRule(item.content, item.id, { sprintId: currentSession?.sprint_id ?? null });
+                }
+            } else {
+                await updateRule(existingRule.id, existingRule.content, enable);
+            }
         } finally {
             setWorkingKey(null);
         }
@@ -943,6 +968,10 @@ export function RetrospectiveView() {
                                       ? 'Sprint'
                                       : '—';
 
+                                const existingRule = rules.find((r) => r.retro_item_id === item.id);
+                                const isRuleActive = existingRule?.is_active ?? false;
+                                const isRuleWorking = workingKey === `rule-${item.id}`;
+
                                 return (
                                     <div key={item.id} className="flex items-start gap-4 px-5 py-4">
                                         <span className="mt-0.5 shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
@@ -951,9 +980,32 @@ export function RetrospectiveView() {
                                         <p className="flex-1 whitespace-pre-wrap text-sm leading-6 text-slate-800">
                                             {item.content}
                                         </p>
-                                        <span className="shrink-0 text-xs text-slate-400">
-                                            {new Date(item.created_at).toLocaleDateString('ja-JP')}
-                                        </span>
+                                        <div className="flex shrink-0 items-center gap-2">
+                                            <span className="text-xs text-slate-400">
+                                                {new Date(item.created_at).toLocaleDateString('ja-JP')}
+                                            </span>
+                                            {/* ルール ON/OFF トグル */}
+                                            <button
+                                                type="button"
+                                                disabled={isRuleWorking}
+                                                onClick={() => void handleRuleToggle(item, !isRuleActive)}
+                                                title={isRuleActive ? 'ルールを無効化' : 'ルールとして有効化'}
+                                                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                                                    isRuleWorking
+                                                        ? 'border-slate-200 bg-slate-50 text-slate-400'
+                                                        : isRuleActive
+                                                          ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                                          : 'border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700'
+                                                }`}
+                                            >
+                                                {isRuleWorking ? (
+                                                    <Loader2 size={11} className="animate-spin" />
+                                                ) : (
+                                                    <Shield size={11} />
+                                                )}
+                                                {isRuleActive ? 'ルール ON' : 'ルール OFF'}
+                                            </button>
+                                        </div>
                                     </div>
                                 );
                             })}

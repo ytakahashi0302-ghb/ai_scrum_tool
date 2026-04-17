@@ -402,8 +402,8 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
             });
             setPreviewInfo(info);
             setHasConflict(false);
-            await invoke('open_preview_in_browser', { port: info.port });
-            toast.success(`プレビューを起動しました (Port ${info.port})`);
+            await invoke('open_preview_in_browser', { url: info.url });
+            toast.success(`プレビューを起動しました (${info.url})`);
         } catch (error) {
             console.error('Failed to start preview server', error);
             toast.error(`プレビュー起動に失敗しました: ${error}`);
@@ -429,7 +429,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
     const handleOpenPreview = useCallback(async () => {
         if (!previewInfo) return;
         try {
-            await invoke('open_preview_in_browser', { port: previewInfo.port });
+            await invoke('open_preview_in_browser', { url: previewInfo.url });
         } catch (error) {
             console.error('Failed to open preview', error);
             toast.error(`ブラウザ起動に失敗しました: ${error}`);
