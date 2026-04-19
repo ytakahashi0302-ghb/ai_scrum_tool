@@ -42,6 +42,24 @@ pub struct ChatInceptionResponse {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatTaskResponse {
     pub reply: String,
+    #[serde(default)]
+    pub focus_missing: bool,
+}
+
+impl ChatTaskResponse {
+    pub fn new(reply: impl Into<String>) -> Self {
+        Self {
+            reply: reply.into(),
+            focus_missing: false,
+        }
+    }
+
+    pub fn focus_missing(reply: impl Into<String>) -> Self {
+        Self {
+            reply: reply.into(),
+            focus_missing: true,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

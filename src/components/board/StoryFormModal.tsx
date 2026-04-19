@@ -3,6 +3,7 @@ import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { Button } from '../ui/Button';
+import { Lightbulb } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export interface StoryFormData {
@@ -17,6 +18,7 @@ interface StoryFormModalProps {
     onClose: () => void;
     onSave: (data: StoryFormData) => Promise<void>;
     onDelete?: () => Promise<void>;
+    onConsultPoAssistant?: () => void;
     initialData?: Partial<StoryFormData>;
     title: string;
 }
@@ -26,6 +28,7 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
     onClose,
     onSave,
     onDelete,
+    onConsultPoAssistant,
     initialData,
     title
 }) => {
@@ -143,6 +146,18 @@ export const StoryFormModal: React.FC<StoryFormModalProps> = ({
                         )}
                     </div>
                     <div className="flex gap-2">
+                        {onConsultPoAssistant && (
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={onConsultPoAssistant}
+                                disabled={isSubmitting}
+                                className="bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 hover:text-amber-800 focus:ring-amber-500"
+                            >
+                                <Lightbulb size={15} className="mr-2" />
+                                POアシスタントに相談
+                            </Button>
+                        )}
                         <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
                             キャンセル
                         </Button>

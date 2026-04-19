@@ -1,10 +1,11 @@
 import { useState, useMemo, useCallback, memo } from 'react';
 import { Story, Task, TeamRoleSetting } from '../../types';
 import { StatusColumn } from './StatusColumn';
-import { Plus, MoreVertical } from 'lucide-react';
+import { Lightbulb, Plus, MoreVertical } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { TaskFormModal, TaskFormData } from '../board/TaskFormModal';
 import { StoryFormModal, StoryFormData } from '../board/StoryFormModal';
+import { useFocus } from '../../context/PoAssistantFocusContext';
 import { useScrum } from '../../context/ScrumContext';
 import { useProjectLabels } from '../../hooks/useProjectLabels';
 import { v4 as uuidv4 } from 'uuid';
@@ -22,8 +23,16 @@ const STATUSES: Task['status'][] = ['To Do', 'In Progress', 'Review', 'Done'];
 export const StorySwimlane = memo(function StorySwimlane({ story, tasks, roleLookup }: StorySwimlaneProps) {
     const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
     const [isEditStoryModalOpen, setIsEditStoryModalOpen] = useState(false);
+    const { setFocus } = useFocus();
     const { refresh, updateStory, deleteStory, setTaskDependencies } = useScrum();
     const { formatStoryLabel } = useProjectLabels(story.project_id);
+
+    const focusStoryForPoAssistant = useCallback(() => {
+        setFocus({
+            kind: 'story',
+            id: story.id,
+        });
+    }, [setFocus, story.id]);
 
     const handleAddTask = useCallback(async (data: TaskFormData) => {
         const statusMap: Record<TaskFormData['status'], Task['status']> = {
@@ -111,6 +120,16 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks, roleLoo
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                         {story.status === 'Ready' ? '準備完了' : story.status === 'In Progress' ? '進行中' : story.status === 'Done' ? '完了' : story.status}
                     </span>
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={focusStoryForPoAssistant}
+                        className="bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 hover:text-amber-800 focus:ring-amber-500"
+                        title="このPBIをPOアシスタントに相談"
+                    >
+                        <Lightbulb size={16} className="mr-1" />
+                        相談
+                    </Button>
                     <Button size="sm" onClick={() => setIsAddTaskModalOpen(true)}>
                         <Plus size={16} className="mr-1" />
                         タスクを追加
@@ -160,6 +179,10 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks, roleLoo
                     priority: story.priority ?? 3
                 }}
                 title="PBIを編集"
+                onConsultPoAssistant={() => {
+                    setIsEditStoryModalOpen(false);
+                    focusStoryForPoAssistant();
+                }}
             />
         </div>
     );

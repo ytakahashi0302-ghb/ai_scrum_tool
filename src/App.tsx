@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ScrumProvider } from "./context/ScrumContext";
+import { PoAssistantFocusProvider, useFocus } from "./context/PoAssistantFocusContext";
 import { WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
 import { SprintTimerProvider } from "./context/SprintTimerContext";
 import { useLlmUsageSummary } from "./hooks/useLlmUsageSummary";
@@ -237,6 +238,7 @@ function AppHeader({
 
 function AppContent() {
     const { currentProjectId, gitStatus, refreshGitStatus } = useWorkspace();
+    const { focus } = useFocus();
     const poAssistantAvatarImage = usePoAssistantAvatarImage();
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [currentView, setCurrentView] = useState<AppView>("kanban");
@@ -265,19 +267,45 @@ function AppContent() {
     }, [terminalRatio]);
 
     useEffect(() => {
-        if (!isSidebarOpen && activeResizeHandle === "sidebar") {
-            setActiveResizeHandle(null);
+        if (
+            !(
+                (!isSidebarOpen && activeResizeHandle === "sidebar") ||
+                (isTerminalMinimized && activeResizeHandle === "terminal")
+            )
+        ) {
+            return;
         }
-        if (isTerminalMinimized && activeResizeHandle === "terminal") {
+
+        const timeoutId = window.setTimeout(() => {
             setActiveResizeHandle(null);
-        }
+        }, 0);
+
+        return () => window.clearTimeout(timeoutId);
     }, [activeResizeHandle, isSidebarOpen, isTerminalMinimized]);
 
     useEffect(() => {
-        if (currentView !== "kanban" && activeResizeHandle !== null) {
-            setActiveResizeHandle(null);
+        if (currentView === "kanban" || activeResizeHandle === null) {
+            return;
         }
+
+        const timeoutId = window.setTimeout(() => {
+            setActiveResizeHandle(null);
+        }, 0);
+
+        return () => window.clearTimeout(timeoutId);
     }, [activeResizeHandle, currentView]);
+
+    useEffect(() => {
+        if (!focus || currentView !== "kanban") {
+            return;
+        }
+
+        const timeoutId = window.setTimeout(() => {
+            setIsSidebarOpen(true);
+        }, 0);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [currentView, focus]);
 
     useEffect(() => {
         if (activeResizeHandle === null) {
@@ -549,12 +577,14 @@ function AppContent() {
 function App() {
     return (
         <WorkspaceProvider>
-            <SprintTimerProvider>
-                <ScrumProvider>
-                    <Toaster position="bottom-right" />
-                    <AppContent />
-                </ScrumProvider>
-            </SprintTimerProvider>
+            <PoAssistantFocusProvider>
+                <SprintTimerProvider>
+                    <ScrumProvider>
+                        <Toaster position="bottom-right" />
+                        <AppContent />
+                    </ScrumProvider>
+                </SprintTimerProvider>
+            </PoAssistantFocusProvider>
         </WorkspaceProvider>
     );
 }

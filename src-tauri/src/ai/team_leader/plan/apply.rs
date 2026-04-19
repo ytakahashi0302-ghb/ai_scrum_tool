@@ -166,7 +166,7 @@ pub(crate) async fn apply_team_leader_execution_plan(
         } else {
             action_results.join("\n")
         };
-        return Ok(Some(ChatTaskResponse { reply: summary }));
+        return Ok(Some(ChatTaskResponse::new(summary)));
     }
 
     if operations.is_empty() {

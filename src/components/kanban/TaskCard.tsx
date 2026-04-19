@@ -7,6 +7,7 @@ import {
     ExternalLink,
     Eye,
     GitMerge,
+    Lightbulb,
     Loader2,
     Lock,
     MoreVertical,
@@ -16,6 +17,7 @@ import {
     Trash2,
 } from 'lucide-react';
 import { TaskFormModal, TaskFormData } from '../board/TaskFormModal';
+import { useFocus } from '../../context/PoAssistantFocusContext';
 import { useScrum } from '../../context/ScrumContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useSprintTimer } from '../../context/SprintTimerContext';
@@ -194,6 +196,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
         getTaskBlockers,
         getBlockerIds,
     } = useScrum();
+    const { setFocus } = useFocus();
     const { ensureTimerRunning } = useSprintTimer();
     const { projects, currentProjectId } = useWorkspace();
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -218,7 +221,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
     const assignedRoleId = task.assigned_role_id ?? '';
     const isReviewTask = task.status === 'Review';
     const isLaunchDisabled =
-        task.status === 'In Progress' || task.status === 'Done' || task.status === 'Review';
+        task.status === 'In Progress' || task.status === 'Done' || task.status === 'Review' || blocked;
 
     const currentProject = useMemo(
         () => projects.find((project) => project.id === currentProjectId),
@@ -335,6 +338,13 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
         transform: CSS.Transform.toString(transform),
         transition,
     };
+
+    const focusTaskForPoAssistant = useCallback(() => {
+        setFocus({
+            kind: 'task',
+            id: task.id,
+        });
+    }, [setFocus, task.id]);
 
     const handleLaunchAgent = useCallback(
         async (e: React.MouseEvent) => {
@@ -705,11 +715,11 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                         : isReviewTask
                           ? 'border-amber-300 bg-amber-50/40 hover:border-amber-400'
                           : blocked
-                            ? 'border-gray-200 opacity-60 hover:border-gray-300'
+                            ? 'border-gray-200 bg-gray-50 hover:border-gray-300'
                             : 'border-gray-200 bg-white hover:border-blue-300'
                 }`}
             >
-                <div className="min-w-0 flex-1 pr-6">
+                <div className={`min-w-0 flex-1 pr-6 ${blocked && !isDragging ? 'opacity-60' : ''}`}>
                     <div className="mb-1 flex items-center gap-1.5">
                         <span
                             className={`rounded border px-1.5 py-0.5 text-xs font-medium ${getPriorityBadgeClass(
@@ -898,21 +908,34 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
 
                 <div className="absolute right-2 top-2 z-10 flex gap-1 rounded bg-white/80 p-0.5 opacity-100 shadow-sm backdrop-blur-sm transition-all sm:opacity-0 sm:group-hover:opacity-100">
                     <button
-                                        onClick={handleLaunchAgent}
+                        onClick={handleLaunchAgent}
                         onPointerDown={stopInteractiveEvent}
                         disabled={isLaunchDisabled}
                         className="rounded p-1 text-blue-500 transition-colors hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-300"
                         title={
-                            task.status === 'In Progress'
-                                ? '進行中のタスクは再実行できません'
-                                : task.status === 'Done'
-                                  ? '完了済みタスクは再実行できません'
-                                  : task.status === 'Review'
-                                    ? 'Review 中のタスクは専用アクションから操作してください'
-                                    : '開発を実行 (Launch Claude)'
+                            blocked
+                                ? 'ブロック中のタスクは実行できません（依存タスクを先に完了してください）'
+                                : task.status === 'In Progress'
+                                  ? '進行中のタスクは再実行できません'
+                                  : task.status === 'Done'
+                                    ? '完了済みタスクは再実行できません'
+                                    : task.status === 'Review'
+                                      ? 'Review 中のタスクは専用アクションから操作してください'
+                                      : '開発を実行 (Launch Claude)'
                         }
                     >
                         <TerminalSquare size={16} />
+                    </button>
+                    <button
+                        onClick={(event) => {
+                            stopInteractiveEvent(event);
+                            focusTaskForPoAssistant();
+                        }}
+                        onPointerDown={stopInteractiveEvent}
+                        className="rounded bg-amber-50 p-1 text-amber-600 ring-1 ring-amber-200 transition-colors hover:bg-amber-500 hover:text-white hover:ring-amber-500"
+                        title={blocked ? 'ブロック中でも POアシスタントに相談できます' : 'POアシスタントに相談'}
+                    >
+                        <Lightbulb size={16} />
                     </button>
                     <button
                         onClick={(event) => {
@@ -935,6 +958,10 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                 initialData={initialTaskFormData}
                 title="タスクを編集"
                 availableTasks={availableTasks.filter((availableTask) => availableTask.id !== task.id)}
+                onConsultPoAssistant={() => {
+                    setIsEditModalOpen(false);
+                    focusTaskForPoAssistant();
+                }}
             />
 
             <Modal

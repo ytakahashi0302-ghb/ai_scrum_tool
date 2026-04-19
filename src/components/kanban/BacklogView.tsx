@@ -1,13 +1,14 @@
 import { useState, useMemo } from 'react';
 import { useScrum } from '../../context/ScrumContext';
 import { Button } from '../ui/Button';
-import { Plus, CalendarPlus, Play, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Plus, CalendarPlus, Play, ArrowRight, ArrowLeft, Lightbulb } from 'lucide-react';
 import { StoryFormModal, StoryFormData } from '../board/StoryFormModal';
 import { v4 as uuidv4 } from 'uuid';
 import { Story, Task } from '../../types';
 import toast from 'react-hot-toast';
 import { useSprintTimer } from '../../context/SprintTimerContext';
 import { useProjectLabels } from '../../hooks/useProjectLabels';
+import { useFocus } from '../../context/PoAssistantFocusContext';
 
 // 数値そのままでソート（小さいほど優先度が高い = 先頭に表示）
 
@@ -15,6 +16,7 @@ export function BacklogView() {
     const { stories, tasks, sprints, addStory, updateStory, deleteStory, createPlannedSprint, startSprint, assignStoryToSprint } = useScrum();
     const { ensureTimerRunning, getConfiguredDurationMs } = useSprintTimer();
     const { formatStoryLabel, formatTaskLabel, formatSprintLabel } = useProjectLabels();
+    const { setFocus } = useFocus();
     const [isAddStoryModalOpen, setIsAddStoryModalOpen] = useState(false);
     const [storyFormInitialData, setStoryFormInitialData] = useState<Partial<StoryFormData> | undefined>();
     const [editingStory, setEditingStory] = useState<Story | null>(null);
@@ -102,6 +104,31 @@ export function BacklogView() {
     // Drag and Drop implementation has been removed due to WebView limitations. 
     // Button-based assignment is used exclusively.
 
+    const openStoryEditor = (story: Story) => {
+        setEditingStory(story);
+        setStoryFormInitialData({
+            title: story.title,
+            description: story.description || '',
+            acceptance_criteria: story.acceptance_criteria || '',
+            priority: story.priority ?? 3
+        });
+        setIsAddStoryModalOpen(true);
+    };
+
+    const focusStoryForPoAssistant = (story: Story) => {
+        setFocus({
+            kind: 'story',
+            id: story.id,
+        });
+    };
+
+    const focusTaskForPoAssistant = (task: Task) => {
+        setFocus({
+            kind: 'task',
+            id: task.id,
+        });
+    };
+
     const renderStoryItem = (story: Story, assignedTasks: Task[], isPlanned: boolean) => {
         const totalTasks = assignedTasks.length;
         const doneTasks = assignedTasks.filter(t => t.status === 'Done').length;
@@ -110,16 +137,7 @@ export function BacklogView() {
         return (
             <div
                 key={story.id}
-                onClick={() => {
-                    setEditingStory(story);
-                    setStoryFormInitialData({
-                        title: story.title,
-                        description: story.description || '',
-                        acceptance_criteria: story.acceptance_criteria || '',
-                        priority: story.priority ?? 3
-                    });
-                    setIsAddStoryModalOpen(true);
-                }}
+                onClick={() => openStoryEditor(story)}
                 className="bg-white p-3 rounded-md shadow-sm border border-gray-200 mb-3 cursor-pointer hover:border-blue-400 hover:shadow-md transition-all group relative"
             >
                 <div className="flex justify-between items-start">
@@ -141,18 +159,31 @@ export function BacklogView() {
                             </span>
                         )}
                     </div>
-                    {plannedSprint && (
+                    <div className="flex items-center gap-1 shrink-0">
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                assignStoryToSprint(story.id, isPlanned ? null : plannedSprint.id);
+                                focusStoryForPoAssistant(story);
                             }}
-                            className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-blue-600 transition-opacity bg-gray-50 hover:bg-blue-50 rounded shrink-0 mb-1"
-                            title={isPlanned ? "バックログに戻す" : "スプリントに追加"}
+                            className="opacity-0 group-hover:opacity-100 inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 transition-all hover:bg-amber-100"
+                            title="このPBIをPOアシスタントに相談"
                         >
-                            {isPlanned ? <ArrowLeft size={20} /> : <ArrowRight size={20} />}
+                            <Lightbulb size={14} />
+                            相談
                         </button>
-                    )}
+                        {plannedSprint && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    assignStoryToSprint(story.id, isPlanned ? null : plannedSprint.id);
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-blue-600 transition-opacity bg-gray-50 hover:bg-blue-50 rounded shrink-0 mb-1"
+                                title={isPlanned ? "バックログに戻す" : "スプリントに追加"}
+                            >
+                                {isPlanned ? <ArrowLeft size={20} /> : <ArrowRight size={20} />}
+                            </button>
+                        )}
+                    </div>
                 </div>
                 <div className="text-xs text-gray-500 mt-1">{totalTasks} 個のタスク</div>
                 {assignedTasks.length > 0 && (
@@ -162,13 +193,23 @@ export function BacklogView() {
                                 key={t.id} 
                                 className={`bg-gray-50 p-2 text-sm rounded border border-gray-100 cursor-default transition-colors flex justify-between items-center group/task ${t.status === 'Done' || t.archived ? 'opacity-50 grayscale hover:bg-gray-50 hover:border-gray-100' : 'hover:bg-gray-100 hover:border-blue-300'}`}
                             >
-                                <div className={`flex items-center ${t.status === 'Done' || t.archived ? 'line-through text-gray-500' : ''}`}>
+                                <div className={`flex items-center min-w-0 ${t.status === 'Done' || t.archived ? 'line-through text-gray-500' : ''}`}>
                                     <span className={`inline-block w-2 h-2 rounded-full mr-2 ${t.status === 'Done' || t.archived ? 'bg-green-400' : 'bg-blue-300'}`}></span>
                                     <span className="mr-2 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
                                         {formatTaskLabel(t.sequence_number)}
                                     </span>
-                                    {t.title}
+                                    <span className="truncate">{t.title}</span>
                                 </div>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        focusTaskForPoAssistant(t);
+                                    }}
+                                    className="opacity-0 group-hover/task:opacity-100 inline-flex items-center justify-center rounded p-1.5 text-amber-600 transition-opacity hover:bg-amber-100 hover:text-amber-700 shrink-0"
+                                    title="このTaskをPOアシスタントに相談"
+                                >
+                                    <Lightbulb size={14} />
+                                </button>
                             </div>
                         ))}
                     </div>
@@ -302,6 +343,10 @@ export function BacklogView() {
                     await deleteStory(editingStory.id);
                 } : undefined}
                 title={editingStory ? "PBIを編集" : "PBIを追加"}
+                onConsultPoAssistant={editingStory ? () => {
+                    setIsAddStoryModalOpen(false);
+                    focusStoryForPoAssistant(editingStory);
+                } : undefined}
             />
         </div>
     );

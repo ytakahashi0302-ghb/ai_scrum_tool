@@ -3,6 +3,7 @@ import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { invoke } from '@tauri-apps/api/core';
+import { Lightbulb } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -23,6 +24,7 @@ interface TaskFormModalProps {
     onClose: () => void;
     onSave: (data: TaskFormData) => Promise<void>;
     onDelete?: () => Promise<void>;
+    onConsultPoAssistant?: () => void;
     initialData?: Partial<TaskFormData>;
     title: string;
     availableTasks?: Task[];
@@ -33,6 +35,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     onClose,
     onSave,
     onDelete,
+    onConsultPoAssistant,
     initialData,
     title,
     availableTasks = []
@@ -297,6 +300,18 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         )}
                     </div>
                     <div className="flex gap-2">
+                        {onConsultPoAssistant && (
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={onConsultPoAssistant}
+                                disabled={isSubmitting}
+                                className="bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 hover:text-amber-800 focus:ring-amber-500"
+                            >
+                                <Lightbulb size={15} className="mr-2" />
+                                POアシスタントに相談
+                            </Button>
+                        )}
                         <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
                             キャンセル
                         </Button>

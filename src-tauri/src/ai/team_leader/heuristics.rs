@@ -113,12 +113,10 @@ pub(super) fn build_backlog_counts_reply(
         return None;
     }
 
-    Some(ChatTaskResponse {
-        reply: format!(
+    Some(ChatTaskResponse::new(format!(
             "{}\n\n追加結果: stories +{}, tasks +{}, dependencies +{}",
             reply_prefix, added_stories, added_tasks, added_dependencies
-        ),
-    })
+        )))
 }
 
 pub(super) async fn build_partial_team_leader_success_response(
@@ -182,5 +180,5 @@ pub(super) fn build_team_leader_provider_unavailable_reply(
         )
     };
 
-    ChatTaskResponse { reply }
+    ChatTaskResponse::new(reply)
 }
