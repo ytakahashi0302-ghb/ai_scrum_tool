@@ -315,6 +315,15 @@ export function SetupStatusTab({
     const apiKeyRows = buildApiKeyRows(apiKeyStatuses);
     const ollamaRows = buildOllamaRows(ollamaStatus);
     const isLoading = cliLoading || apiLoading || ollamaLoading || !gitStatus.checked;
+    const refreshStatus = isLoading ? (
+        <div
+            aria-live="polite"
+            className="inline-flex items-center gap-2 text-xs font-medium text-slate-500"
+        >
+            <Loader2 size={14} className="animate-spin" />
+            <span>現在のセットアップ状況を確認しています</span>
+        </div>
+    ) : null;
 
     return (
         <div className="space-y-5">
@@ -330,22 +339,26 @@ export function SetupStatusTab({
                             </p>
                         </div>
 
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => void onRefresh()}
-                            disabled={isRefreshing}
-                            className="shrink-0 whitespace-nowrap border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                        >
-                            <RefreshCw size={16} className={`mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                            今すぐ再検出
-                        </Button>
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+                            {refreshStatus}
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => void onRefresh()}
+                                disabled={isRefreshing}
+                                className="shrink-0 whitespace-nowrap border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                            >
+                                <RefreshCw size={16} className={`mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                                今すぐ再検出
+                            </Button>
+                        </div>
                     </div>
                 </div>
             )}
 
             {embedded && (
-                <div className="flex justify-end">
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                    {refreshStatus}
                     <Button
                         type="button"
                         variant="secondary"
@@ -393,7 +406,6 @@ export function SetupStatusTab({
                         <ul className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
                             <li>Dev エージェント機能には、最低 1 つの CLI ツールと Git の準備が必要です。</li>
                             <li>PO アシスタント機能には、API キー設定または Ollama の稼働が必要です。</li>
-                            {isLoading && <li>現在のセットアップ状況を確認しています。</li>}
                         </ul>
                     </div>
                 </div>

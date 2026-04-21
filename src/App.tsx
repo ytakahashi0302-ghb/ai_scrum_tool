@@ -3,8 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { Toaster } from "react-hot-toast";
 import {
     Bot,
-    Coins,
-    History,
     LayoutDashboard,
     Lightbulb,
     RefreshCcw,
@@ -16,12 +14,12 @@ import { ScrumProvider } from "./context/ScrumContext";
 import { PoAssistantFocusProvider, useFocus } from "./context/PoAssistantFocusContext";
 import { WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
 import { SprintTimerProvider } from "./context/SprintTimerContext";
-import { useLlmUsageSummary } from "./hooks/useLlmUsageSummary";
 import { usePoAssistantAvatarImage } from "./hooks/usePoAssistantAvatarImage";
 import { ProjectSelector } from "./components/ui/ProjectSelector";
 import { ProjectSettings } from "./components/ui/ProjectSettings";
 import { WarningBanner } from "./components/ui/WarningBanner";
 import { EdgeTabHandle } from "./components/ui/EdgeTabHandle";
+import { LlmUsagePill } from "./components/ui/LlmUsagePill";
 import { InceptionDeck } from "./components/project/InceptionDeck";
 import { ScrumDashboard } from "./components/kanban/ScrumDashboard";
 import { PoAssistantSidebar } from "./components/ai/PoAssistantSidebar";
@@ -46,9 +44,9 @@ const SPLITTER_SIZE_PX = 10;
 const TERMINAL_MINIMIZED_HEIGHT_PX = 34;
 
 interface AppHeaderProps {
-    currentProjectId: string;
     currentView: AppView;
-    onOpenHistory: () => void;
+    currentProjectId: string;
+    showProjectSettings: boolean;
     onSetView: (view: AppView) => void;
 }
 
@@ -61,14 +59,6 @@ const APP_VIEW_ITEMS: Array<{
     { view: "kanban", label: "Kanban", icon: LayoutDashboard },
     { view: "settings", label: "Settings", icon: SettingsIcon },
 ];
-
-function formatTokenCount(value: number) {
-    return new Intl.NumberFormat("ja-JP").format(value);
-}
-
-function formatEstimatedCost(value: number) {
-    return `~$${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : value >= 1 ? 2 : 3)}`;
-}
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
@@ -84,86 +74,14 @@ function readStoredRatio(key: string, fallback: number) {
 }
 
 /**
- * LlmUsagePill (EPIC45 v2)
- * コンパクトな合計表示 + ホバーで Project / Sprint 内訳を表示。
- */
-function LlmUsagePill({ projectId }: { projectId: string }) {
-    const { summary, loading, error } = useLlmUsageSummary(projectId);
-    const [isTooltipOpen, setIsTooltipOpen] = useState(false);
-
-    if (!projectId) {
-        return null;
-    }
-
-    const projectTokens = summary?.project_totals.total_tokens ?? 0;
-    const projectCost = summary?.project_totals.estimated_cost_usd ?? 0;
-    const sprintTokens = summary?.active_sprint_totals.total_tokens ?? 0;
-    const sprintCost = summary?.active_sprint_totals.estimated_cost_usd ?? 0;
-
-    const primaryLabel = loading && !summary
-        ? "読み込み中..."
-        : `${formatTokenCount(projectTokens)} token / ${formatEstimatedCost(projectCost)}`;
-
-    return (
-        <div
-            className="relative"
-            onMouseEnter={() => setIsTooltipOpen(true)}
-            onMouseLeave={() => setIsTooltipOpen(false)}
-            onFocus={() => setIsTooltipOpen(true)}
-            onBlur={() => setIsTooltipOpen(false)}
-        >
-            <button
-                type="button"
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                title={error ? `LLM usage の取得に失敗しました: ${error}` : undefined}
-            >
-                <Coins size={15} className="text-slate-500" />
-                <span className="tabular-nums text-slate-900">{primaryLabel}</span>
-            </button>
-
-            {isTooltipOpen && !error && (
-                <div
-                    role="tooltip"
-                    className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600 shadow-lg"
-                >
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                        LLM 利用量
-                    </div>
-                    <div className="mt-2 space-y-2">
-                        <div>
-                            <div className="text-[11px] font-semibold text-slate-500">Project</div>
-                            <div className="tabular-nums text-slate-900">
-                                {formatTokenCount(projectTokens)} token / {formatEstimatedCost(projectCost)}
-                            </div>
-                        </div>
-                        <div>
-                            <div className="text-[11px] font-semibold text-slate-500">Active Sprint</div>
-                            <div className="tabular-nums text-slate-900">
-                                {formatTokenCount(sprintTokens)} token / {formatEstimatedCost(sprintCost)}
-                            </div>
-                        </div>
-                        {summary && summary.project_totals.unavailable_event_count > 0 && (
-                            <div className="text-[11px] text-amber-600">
-                                未計測イベント: {summary.project_totals.unavailable_event_count} 件
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
-/**
  * AppHeader (EPIC45 v2)
- * - ハンバーガー / Current View 表示 / PO ボタンを撤去
  * - 中央に Inception Deck / Kanban / Settings のセグメント切替
- * - 設定導線は中央セグメントに統合
+ * - ヘッダー右クラスターは Project / Folder 設定のみに整理
  */
 function AppHeader({
-    currentProjectId,
     currentView,
-    onOpenHistory,
+    currentProjectId,
+    showProjectSettings,
     onSetView,
 }: AppHeaderProps) {
     return (
@@ -210,23 +128,9 @@ function AppHeader({
 
                     {/* Right utility cluster */}
                     <div className="flex flex-wrap items-center justify-end gap-2">
+                        <ProjectSelector />
+                        {showProjectSettings && <ProjectSettings />}
                         <LlmUsagePill projectId={currentProjectId} />
-
-                        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-2 py-1 shadow-sm">
-                            <ProjectSelector />
-                            <div className="hidden h-8 w-px bg-slate-200 sm:block" />
-                            <ProjectSettings />
-                        </div>
-
-                        <button
-                            type="button"
-                            onClick={onOpenHistory}
-                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            title="スプリント履歴を表示"
-                        >
-                            <History size={16} />
-                            <span className="hidden sm:inline">履歴</span>
-                        </button>
                     </div>
                 </div>
             </div>
@@ -237,13 +141,15 @@ function AppHeader({
 }
 
 function AppContent() {
-    const { currentProjectId, gitStatus, refreshGitStatus } = useWorkspace();
+    const { projects, currentProjectId, gitStatus, refreshGitStatus } = useWorkspace();
     const { focus } = useFocus();
     const poAssistantAvatarImage = usePoAssistantAvatarImage();
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [currentView, setCurrentView] = useState<AppView>("kanban");
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isTerminalMinimized, setIsTerminalMinimized] = useState(true);
+    const [isAgentRunning, setIsAgentRunning] = useState(false);
+    const [hasUnreadPoMessage, setHasUnreadPoMessage] = useState(false);
     const [sidebarRatio, setSidebarRatio] = useState(() =>
         readStoredRatio(SIDEBAR_RATIO_STORAGE_KEY, DEFAULT_SIDEBAR_RATIO),
     );
@@ -254,6 +160,7 @@ function AppContent() {
     const kanbanContainerRef = useRef<HTMLDivElement | null>(null);
     const mainPaneRef = useRef<HTMLDivElement | null>(null);
     const lastPrimaryViewRef = useRef<PrimaryView>("kanban");
+    const currentProject = projects.find((project) => project.id === currentProjectId) ?? null;
 
     // Suppress unused warning (avatar image is still used internally by the PO assistant sidebar via hook)
     void poAssistantAvatarImage;
@@ -406,9 +313,9 @@ function AppContent() {
     return (
         <div className="relative flex h-screen flex-col overflow-hidden bg-slate-100 font-sans">
             <AppHeader
-                currentProjectId={currentProjectId}
                 currentView={currentView}
-                onOpenHistory={() => setIsHistoryOpen(true)}
+                currentProjectId={currentProjectId}
+                showProjectSettings={!currentProject?.local_path}
                 onSetView={handleSetView}
             />
 
@@ -451,13 +358,13 @@ function AppContent() {
             ) : (
                 <div
                     ref={kanbanContainerRef}
-                    className="relative flex min-h-0 flex-1 flex-row overflow-hidden bg-gray-50/50 backdrop-blur-sm"
+                    className="relative flex min-h-0 flex-1 flex-row overflow-hidden bg-slate-50/50 backdrop-blur-sm"
                 >
                     <div
                         ref={mainPaneRef}
                         style={mainPaneWidthStyle}
                         className={`relative z-10 flex min-h-0 flex-col overflow-hidden ${
-                            isSidebarOpen ? "border-r border-gray-200/60" : ""
+                            isSidebarOpen ? "border-r border-slate-200/60" : ""
                         } ${
                             isDraggingSidebar || isDraggingTerminal
                                 ? "transition-none"
@@ -470,7 +377,10 @@ function AppContent() {
                                 isTerminalMinimized ? "flex-1" : ""
                             }`}
                         >
-                            <ScrumDashboard />
+                            <ScrumDashboard
+                                currentProjectId={currentProjectId}
+                                onOpenHistory={() => setIsHistoryOpen(true)}
+                            />
                         </div>
 
                         {!isTerminalMinimized && (
@@ -488,7 +398,7 @@ function AppContent() {
 
                         <div
                             style={terminalHeightStyle}
-                            className={`z-20 flex flex-col border-t border-black/60 bg-[#111318] text-gray-300 shadow-[0_-12px_40px_-15px_rgba(0,0,0,0.55)] ${
+                            className={`z-20 flex flex-col border-t border-zinc-700/90 bg-[#111318] text-slate-300 shadow-[0_-12px_40px_-15px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-white/5 ${
                                 isDraggingTerminal
                                     ? "transition-none"
                                     : "transition-[height] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
@@ -497,6 +407,7 @@ function AppContent() {
                             <TerminalDock
                                 isMinimized={isTerminalMinimized}
                                 onToggleMinimize={() => setIsTerminalMinimized((prev) => !prev)}
+                                onRunningStateChange={setIsAgentRunning}
                             />
                         </div>
 
@@ -508,14 +419,15 @@ function AppContent() {
                             <div className="pointer-events-auto">
                                 <EdgeTabHandle
                                     side="bottom"
-                                    label="チームの稼働状況"
+                                    label="Dev Agent"
                                     icon={TerminalSquare}
                                     active={!isTerminalMinimized}
+                                    badge={isAgentRunning ? "●" : undefined}
                                     onClick={() => setIsTerminalMinimized((prev) => !prev)}
                                     title={
                                         isTerminalMinimized
-                                            ? "チームの稼働状況を開く"
-                                            : "チームの稼働状況を閉じる"
+                                            ? "Dev Agent を開く"
+                                            : "Dev Agent を閉じる"
                                     }
                                 />
                             </div>
@@ -546,16 +458,21 @@ function AppContent() {
                         }`}
                     >
                         <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white/80 backdrop-blur-md shadow-[-12px_0_40px_-15px_rgba(0,0,0,0.15)]">
-                            <PoAssistantSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+                            <PoAssistantSidebar
+                                isOpen={isSidebarOpen}
+                                onClose={() => setIsSidebarOpen(false)}
+                                onUnreadChange={setHasUnreadPoMessage}
+                            />
                         </div>
 
                         <div className="pointer-events-none absolute inset-y-0 left-0 z-30 flex items-center">
                             <div className="pointer-events-auto -translate-x-full">
                                 <EdgeTabHandle
                                     side="right"
-                                    label="PO アシスタント / ふせん"
+                                    label="PO"
                                     icon={Bot}
                                     active={isSidebarOpen}
+                                    badge={hasUnreadPoMessage ? "●" : undefined}
                                     onClick={() => setIsSidebarOpen((prev) => !prev)}
                                     title={
                                         isSidebarOpen

@@ -41,11 +41,11 @@ export function StatusColumn({ storyId, status, tasks, allStoryTasks = [], roleL
     return (
         <div
             ref={setNodeRef}
-            className={`flex-1 min-h-[150px] p-3 rounded-xl border ${bgClasses[status]} transition-colors ${isOver ? 'ring-2 ring-blue-400 ring-inset opacity-80' : ''
+            className={`flex-1 min-h-[150px] rounded-xl border p-3 shadow-sm transition-colors ${bgClasses[status]} ${isOver ? 'ring-2 ring-blue-400 ring-inset opacity-80' : ''
                 }`}
         >
-            <h3 className="text-xs font-semibold text-gray-500 tracking-wider mb-3 px-1">
-                {displayStatus[status]} <span className="text-gray-400 font-normal ml-1">({tasks.length})</span>
+            <h3 className="mb-3 px-1 text-xs font-semibold tracking-[0.14em] text-slate-500">
+                {displayStatus[status]} <span className="ml-1 font-normal text-slate-400">({tasks.length})</span>
             </h3>
 
             <SortableContext

@@ -41,12 +41,12 @@ const SETTINGS_CATEGORIES: SettingsSidebarCategory[] = [
             {
                 id: 'project',
                 label: 'プロジェクト',
-                description: 'ローカルパスと基本前提',
+                description: 'ローカルパスと前提確認',
             },
             {
                 id: 'setup',
                 label: 'セットアップ状況',
-                description: 'Git / CLI / API キーの確認',
+                description: 'Git / CLI / API キー確認',
             },
         ],
     },
@@ -56,7 +56,7 @@ const SETTINGS_CATEGORIES: SettingsSidebarCategory[] = [
             {
                 id: 'ai-provider',
                 label: 'AIプロバイダー設定',
-                description: 'APIキーと接続情報を管理',
+                description: 'API キーと接続情報',
             },
             {
                 id: 'po-assistant',
@@ -66,7 +66,7 @@ const SETTINGS_CATEGORIES: SettingsSidebarCategory[] = [
             {
                 id: 'team',
                 label: 'チーム設定',
-                description: 'ロールと並列実行構成',
+                description: 'ロールと並列構成',
             },
         ],
     },
@@ -86,7 +86,7 @@ const SETTINGS_CATEGORIES: SettingsSidebarCategory[] = [
             {
                 id: 'retro-rules',
                 label: 'レトロルール',
-                description: 'エージェントへのルール注入管理',
+                description: 'ルール注入の管理',
             },
         ],
     },
@@ -99,12 +99,8 @@ export function SettingsShell({
 }: SettingsShellProps) {
     const settings = useSettings();
     const [activeSection, setActiveSection] = useState<SettingsSectionId>('project');
-    const [hasInitializedSection, setHasInitializedSection] = useState(false);
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-
-    const resolvedActiveSection = !hasInitializedSection && settings.isInitialSectionReady
-        ? settings.recommendedInitialSection
-        : activeSection;
+    const resolvedActiveSection = activeSection;
 
     useEffect(() => {
         if (mode !== 'modal') {
@@ -134,7 +130,6 @@ export function SettingsShell({
 
     const handleSelectSection = (sectionId: SettingsSectionId) => {
         setActiveSection(sectionId);
-        setHasInitializedSection(true);
         setIsMobileSidebarOpen(false);
     };
 
@@ -281,7 +276,7 @@ export function SettingsShell({
 
             <div className="relative min-h-0 flex-1 overflow-hidden">
                 <div className="flex h-full min-h-0">
-                    <div className="hidden w-[180px] shrink-0 md:block">
+                    <div className="hidden w-[224px] shrink-0 md:block">
                         <SettingsSidebar
                             categories={SETTINGS_CATEGORIES}
                             activeSection={resolvedActiveSection}
@@ -298,7 +293,7 @@ export function SettingsShell({
                                     className="absolute inset-0 bg-slate-950/20"
                                     onClick={() => setIsMobileSidebarOpen(false)}
                                 />
-                                <div className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] shadow-xl">
+                                <div className="absolute inset-y-0 left-0 w-[304px] max-w-[88vw] shadow-xl">
                                     <SettingsSidebar
                                         categories={SETTINGS_CATEGORIES}
                                         activeSection={resolvedActiveSection}

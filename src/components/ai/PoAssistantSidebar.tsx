@@ -60,6 +60,7 @@ interface ChatWithTeamLeaderResponse {
 interface PoAssistantSidebarProps {
     isOpen: boolean;
     onClose: () => void;
+    onUnreadChange?: (hasUnread: boolean) => void;
 }
 
 function mapTaskStatusToFormStatus(status: Task['status']): TaskFormData['status'] {
@@ -252,7 +253,11 @@ function buildMessagesForAI(
     return payload;
 }
 
-export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({ isOpen, onClose }) => {
+export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({
+    isOpen,
+    onClose,
+    onUnreadChange,
+}) => {
     const { currentProjectId, projects } = useWorkspace();
     const { stories, tasks, dependencies, updateTask, setTaskDependencies } = useScrum();
     const { focus, clearFocus } = useFocus();
@@ -273,6 +278,9 @@ export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({ isOpen, 
         initialData: Partial<TaskFormData>;
     } | null>(null);
     const [historyStartAfterMessageId, setHistoryStartAfterMessageId] = useState<string | null>(
+        null,
+    );
+    const [lastReadAssistantMessageId, setLastReadAssistantMessageId] = useState<string | null>(
         null,
     );
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -305,6 +313,15 @@ export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({ isOpen, 
         () => getActiveConversationMessages(messages, historyStartAfterMessageId),
         [historyStartAfterMessageId, messages],
     );
+    const latestAssistantMessageId = useMemo(() => {
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+            if (messages[index].role === 'assistant') {
+                return messages[index].id;
+            }
+        }
+
+        return null;
+    }, [messages]);
     const latestConversationFocus = useMemo(
         () => getLatestFocusSnapshot(activeConversationMessages),
         [activeConversationMessages],
@@ -355,6 +372,32 @@ export const PoAssistantSidebar: React.FC<PoAssistantSidebarProps> = ({ isOpen, 
             setEditTarget(null);
         }
     }, [editTarget, editTask]);
+
+    useEffect(() => {
+        setLastReadAssistantMessageId(null);
+        onUnreadChange?.(false);
+    }, [currentProjectId, onUnreadChange]);
+
+    useEffect(() => {
+        if (isOpen) {
+            setLastReadAssistantMessageId(latestAssistantMessageId);
+            onUnreadChange?.(false);
+            return;
+        }
+
+        if (!latestAssistantMessageId) {
+            onUnreadChange?.(false);
+            return;
+        }
+
+        onUnreadChange?.(latestAssistantMessageId !== lastReadAssistantMessageId);
+    }, [isOpen, lastReadAssistantMessageId, latestAssistantMessageId, onUnreadChange]);
+
+    useEffect(() => {
+        return () => {
+            onUnreadChange?.(false);
+        };
+    }, [onUnreadChange]);
 
     const loadMessages = async () => {
         try {

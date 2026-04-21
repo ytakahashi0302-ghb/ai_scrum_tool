@@ -424,7 +424,7 @@ export function InceptionDeck() {
                             </div>
                         )}
 
-                        <div className="p-4 border-t border-gray-200 bg-white">
+                        <div className="relative z-20 border-t border-gray-200 bg-white p-4">
                             <div className="flex flex-col gap-2">
                                 <textarea
                                     value={inputText}
@@ -438,7 +438,7 @@ export function InceptionDeck() {
                                         }
                                     }}
                                     disabled={isProcessing}
-                                    className="w-full border border-gray-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none h-20"
+                                    className="h-20 w-full resize-none rounded-md border border-gray-300 bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     placeholder="AIへの指示を入力... (Ctrl+Enterで送信)"
                                 />
                                 <div className="flex justify-between items-center">

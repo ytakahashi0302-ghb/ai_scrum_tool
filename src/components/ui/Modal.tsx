@@ -35,11 +35,11 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
                 onKeyDownCapture={(e) => e.stopPropagation()}
                 onPointerDownCapture={(e) => e.stopPropagation()}
             >
-                <div className="flex items-center justify-between p-4 border-b">
-                    <h2 className="text-xl font-semibold text-gray-800">{title}</h2>
+                <div className="flex items-center justify-between border-b border-slate-200 p-4">
+                    <h2 className="text-xl font-semibold text-slate-800">{title}</h2>
                     <button
                         onClick={onClose}
-                        className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
+                        className="rounded-full p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                     >
                         <X size={20} />
                     </button>

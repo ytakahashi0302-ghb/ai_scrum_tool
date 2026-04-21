@@ -29,7 +29,7 @@ export function SettingsSidebar({
     return (
         <nav
             className={cn(
-                'h-full overflow-y-auto border-r border-slate-200 bg-white/90 px-3 py-4',
+                'h-full overflow-y-auto border-r border-slate-200 bg-white/90 px-3.5 py-4',
                 className,
             )}
             aria-label="設定セクション"
@@ -37,7 +37,7 @@ export function SettingsSidebar({
             <div className="space-y-5">
                 {categories.map((category) => (
                     <div key={category.label}>
-                        <div className="px-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                        <div className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                             {category.label}
                         </div>
                         <div className="mt-2 space-y-1">
@@ -50,29 +50,33 @@ export function SettingsSidebar({
                                         type="button"
                                         onClick={() => onSelect(section.id)}
                                         className={cn(
-                                            'flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition-colors',
+                                            'flex w-full items-start gap-2.5 rounded-2xl px-3 py-2.5 text-left transition-colors',
                                             selected
                                                 ? 'bg-slate-900 text-white shadow-sm'
                                                 : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
                                         )}
                                     >
                                         <div className="min-w-0 flex-1">
-                                            <div className="text-sm font-semibold">
+                                            <div
+                                                className="truncate text-[13px] font-semibold leading-5"
+                                                title={section.label}
+                                            >
                                                 {section.label}
                                             </div>
                                             <div
                                                 className={cn(
-                                                    'mt-1 text-xs leading-5',
+                                                    'mt-0.5 truncate text-[11px] leading-4',
                                                     selected ? 'text-slate-200' : 'text-slate-400',
                                                 )}
+                                                title={section.description}
                                             >
                                                 {section.description}
                                             </div>
                                         </div>
                                         <ChevronRight
-                                            size={16}
+                                            size={14}
                                             className={cn(
-                                                'mt-0.5 shrink-0',
+                                                'mt-1 shrink-0',
                                                 selected ? 'text-slate-300' : 'text-slate-300',
                                             )}
                                         />

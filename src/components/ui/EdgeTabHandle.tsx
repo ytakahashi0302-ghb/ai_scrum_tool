@@ -30,7 +30,8 @@ interface EdgeTabHandleProps {
 
 function sideContainerClasses(side: EdgeSide, active: boolean): string {
     // 画面端に固定する絶対配置 + 角丸の向きを 1 箇所に集約
-    const base = 'pointer-events-auto shadow-md transition-colors';
+    const base =
+        'pointer-events-auto bg-white/95 text-slate-700 shadow-[0_10px_24px_-16px_rgba(15,23,42,0.55)] backdrop-blur-sm transition-[border-color,box-shadow,color,background-color] duration-200';
     const radius =
         side === 'left'
             ? 'rounded-r-xl'
@@ -39,13 +40,13 @@ function sideContainerClasses(side: EdgeSide, active: boolean): string {
               : 'rounded-t-xl';
     const border =
         side === 'left'
-            ? 'border border-l-0 border-slate-200'
+            ? 'border border-l-0 border-slate-300'
             : side === 'right'
-              ? 'border border-r-0 border-slate-200'
-              : 'border border-b-0 border-slate-200';
+              ? 'border border-r-0 border-slate-300'
+              : 'border border-b-0 border-slate-300';
     const activeState = active
-        ? 'bg-slate-50 text-slate-700 ring-2 ring-blue-500 border-slate-300'
-        : 'bg-slate-50 text-slate-600 hover:text-blue-600 hover:border-slate-300';
+        ? 'bg-white text-slate-900 border-slate-400 ring-1 ring-blue-500/55 shadow-[0_14px_30px_-20px_rgba(37,99,235,0.5)]'
+        : 'hover:border-slate-400 hover:bg-white hover:text-slate-900';
     return cn(base, radius, border, activeState);
 }
 
@@ -68,6 +69,7 @@ export function EdgeTabHandle({
     className,
 }: EdgeTabHandleProps) {
     const isVertical = side === 'left' || side === 'right';
+    const isDotBadge = badge === '●';
 
     return (
         <button
@@ -92,9 +94,16 @@ export function EdgeTabHandle({
                 {label}
             </span>
             {badge && (
-                <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-semibold text-white">
-                    {badge}
-                </span>
+                isDotBadge ? (
+                    <span
+                        aria-hidden="true"
+                        className="inline-flex h-2.5 w-2.5 rounded-full bg-blue-500 shadow-[0_0_0_2px_rgba(255,255,255,0.92)]"
+                    />
+                ) : (
+                    <span className="inline-flex min-w-[18px] items-center justify-center rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                        {badge}
+                    </span>
+                )
             )}
         </button>
     );

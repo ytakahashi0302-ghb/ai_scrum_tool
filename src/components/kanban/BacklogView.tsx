@@ -138,26 +138,31 @@ export function BacklogView() {
             <div
                 key={story.id}
                 onClick={() => openStoryEditor(story)}
-                className="bg-white p-3 rounded-md shadow-sm border border-gray-200 mb-3 cursor-pointer hover:border-blue-400 hover:shadow-md transition-all group relative"
+                className="group relative mb-3 cursor-pointer rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all hover:border-blue-400 hover:shadow-md"
             >
-                <div className="flex justify-between items-start">
-                    <div className="font-semibold text-gray-800 break-words pr-2 flex items-center gap-2 flex-wrap">
-                        <span className={`text-xs px-1.5 py-0.5 rounded border font-medium shrink-0 ${
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className={`shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-xs font-medium ${
                             (story.priority ?? 3) <= 1 ? 'bg-red-100 text-red-700 border-red-200' :
                             story.priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
                             story.priority === 3 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
                             story.priority === 4 ? 'bg-blue-100 text-blue-600 border-blue-200' :
-                            'bg-gray-100 text-gray-500 border-gray-200'
+                            'bg-slate-100 text-slate-500 border-slate-200'
                         }`}>P{story.priority ?? 3}</span>
-                        <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                            {formatStoryLabel(story.sequence_number)}
-                        </span>
-                        {story.title}
-                        {totalTasks > 0 && (
-                            <span className="text-xs font-normal text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
-                                {progressText}
+                            <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                {formatStoryLabel(story.sequence_number)}
                             </span>
-                        )}
+                            {totalTasks > 0 && (
+                                <span className="whitespace-nowrap rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-500">
+                                    {progressText}
+                                </span>
+                            )}
+                        </div>
+                        <span className="mt-2 line-clamp-2 text-sm font-semibold text-slate-900">
+                            {story.title}
+                        </span>
+                        <div className="mt-1 text-xs text-slate-500">{totalTasks} 個のタスク</div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                         <button
@@ -165,7 +170,7 @@ export function BacklogView() {
                                 e.stopPropagation();
                                 focusStoryForPoAssistant(story);
                             }}
-                            className="opacity-0 group-hover:opacity-100 inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 transition-all hover:bg-amber-100"
+                            className="inline-flex items-center gap-1 rounded-xl bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 opacity-0 transition-all hover:bg-amber-100 group-hover:opacity-100"
                             title="このPBIをPOアシスタントに相談"
                         >
                             <Lightbulb size={14} />
@@ -177,7 +182,7 @@ export function BacklogView() {
                                     e.stopPropagation();
                                     assignStoryToSprint(story.id, isPlanned ? null : plannedSprint.id);
                                 }}
-                                className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-blue-600 transition-opacity bg-gray-50 hover:bg-blue-50 rounded shrink-0 mb-1"
+                                className="mb-1 shrink-0 rounded-xl bg-slate-50 p-2 text-slate-400 opacity-0 transition-opacity hover:bg-blue-50 hover:text-blue-600 group-hover:opacity-100"
                                 title={isPlanned ? "バックログに戻す" : "スプリントに追加"}
                             >
                                 {isPlanned ? <ArrowLeft size={20} /> : <ArrowRight size={20} />}
@@ -185,20 +190,19 @@ export function BacklogView() {
                         )}
                     </div>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">{totalTasks} 個のタスク</div>
                 {assignedTasks.length > 0 && (
-                    <div className="mt-3 space-y-2 border-l-2 border-gray-100 pl-3">
+                    <div className="mt-3 space-y-2 border-l-2 border-slate-100 pl-3">
                         {assignedTasks.map(t => (
                             <div 
                                 key={t.id} 
-                                className={`bg-gray-50 p-2 text-sm rounded border border-gray-100 cursor-default transition-colors flex justify-between items-center group/task ${t.status === 'Done' || t.archived ? 'opacity-50 grayscale hover:bg-gray-50 hover:border-gray-100' : 'hover:bg-gray-100 hover:border-blue-300'}`}
+                                className={`group/task flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 p-2 text-sm transition-colors ${t.status === 'Done' || t.archived ? 'cursor-default opacity-50 grayscale hover:border-slate-100 hover:bg-slate-50' : 'cursor-default hover:border-blue-300 hover:bg-slate-100'}`}
                             >
-                                <div className={`flex items-center min-w-0 ${t.status === 'Done' || t.archived ? 'line-through text-gray-500' : ''}`}>
-                                    <span className={`inline-block w-2 h-2 rounded-full mr-2 ${t.status === 'Done' || t.archived ? 'bg-green-400' : 'bg-blue-300'}`}></span>
+                                <div className={`flex min-w-0 items-center ${t.status === 'Done' || t.archived ? 'line-through text-slate-500' : 'text-slate-700'}`}>
+                                    <span className={`mr-2 inline-block h-2 w-2 rounded-full ${t.status === 'Done' || t.archived ? 'bg-green-400' : 'bg-blue-300'}`}></span>
                                     <span className="mr-2 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
                                         {formatTaskLabel(t.sequence_number)}
                                     </span>
-                                    <span className="truncate">{t.title}</span>
+                                    <span className="line-clamp-2">{t.title}</span>
                                 </div>
                                 <button
                                     onClick={(e) => {
@@ -222,26 +226,26 @@ export function BacklogView() {
         <div className="flex h-full gap-6 px-6 py-4 overflow-hidden">
             {/* Left: Backlog */}
             <div 
-                className="flex-[1.2] flex flex-col bg-gray-50 rounded-lg border border-gray-200 shadow-inner overflow-hidden"
+                className="flex flex-[1.2] flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm"
             >
-                <div className="flex justify-between items-center p-4 border-b border-gray-200 bg-white">
-                    <h2 className="text-base font-bold text-gray-800 flex items-center">
+                <div className="flex items-center justify-between border-b border-slate-200 bg-white p-4">
+                    <h2 className="flex items-center text-base font-bold text-slate-800">
                         プロダクトバックログ
-                        <span className="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs font-medium">
+                        <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                             {backlogStories.length} {backlogStories.length > 0 ? `stories` : ''}
                         </span>
                     </h2>
                     <div className="flex gap-2 items-center">
-                        <div className="flex bg-gray-100 p-0.5 rounded-md text-xs">
+                        <div className="flex rounded-xl bg-slate-100 p-0.5 text-xs">
                             <button
                                 onClick={() => setSortMode('date')}
-                                className={`px-2 py-1 rounded transition-colors ${sortMode === 'date' ? 'bg-white shadow-sm font-medium text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                                className={`rounded-lg px-2 py-1 transition-colors ${sortMode === 'date' ? 'bg-white font-medium text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
                                 作成日時
                             </button>
                             <button
                                 onClick={() => setSortMode('priority')}
-                                className={`px-2 py-1 rounded transition-colors ${sortMode === 'priority' ? 'bg-white shadow-sm font-medium text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                                className={`rounded-lg px-2 py-1 transition-colors ${sortMode === 'priority' ? 'bg-white font-medium text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
                                 優先度
                             </button>
@@ -260,7 +264,7 @@ export function BacklogView() {
                     className="overflow-y-auto flex-1 p-4 min-h-[300px] h-full"
                 >
                     {backlogStories.length === 0 && tasks.filter(t => !t.sprint_id && !t.archived).length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm p-4 text-center pointer-events-none">
+                        <div className="pointer-events-none flex h-full flex-col items-center justify-center p-4 text-center text-sm text-slate-400">
                             <p>バックログは空です。<br/>PBIを作成して、プロジェクトを計画しましょう。</p>
                         </div>
                     ) : (
@@ -274,7 +278,7 @@ export function BacklogView() {
 
             {/* Right: Planned Sprint */}
             <div 
-                className="flex-1 flex flex-col bg-blue-50/30 rounded-lg border border-blue-200 shadow-sm overflow-hidden min-h-[300px]"
+                className="flex min-h-[300px] flex-1 flex-col overflow-hidden rounded-xl border border-blue-200 bg-blue-50/30 shadow-sm"
             >
                 <div className="flex justify-between items-center p-4 border-b border-blue-100 bg-white">
                     <div>
@@ -304,12 +308,12 @@ export function BacklogView() {
                     className={ `overflow-y-auto flex-1 p-4 min-h-[300px] h-full ${!plannedSprint ? 'opacity-50 pointer-events-none' : ''}` }
                 >
                     {!plannedSprint ? (
-                        <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm p-4 text-center pointer-events-none">
+                        <div className="pointer-events-none flex h-full flex-col items-center justify-center p-4 text-center text-sm text-slate-400">
                             <CalendarPlus className="w-8 h-8 opacity-20 mb-2 text-blue-400" />
                             <p>スプリントを作成すると、<br/>バックログからPBIを割り当てられます。</p>
                         </div>
                     ) : plannedStories.length === 0 && tasks.filter(t => t.sprint_id === plannedSprint.id).length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full text-blue-400/80 text-sm p-4 border-2 border-dashed border-blue-200 rounded-lg bg-blue-50/50 pointer-events-none">
+                        <div className="pointer-events-none flex h-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-4 text-sm text-blue-400/80">
                             <p>左のバックログから<br/>矢印ボタンでPBIを追加してください</p>
                         </div>
                     ) : (

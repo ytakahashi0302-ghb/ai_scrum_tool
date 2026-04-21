@@ -18,7 +18,7 @@ import toast from 'react-hot-toast';
 import { VICARA_SETTINGS_UPDATED_EVENT } from '../../hooks/usePoAssistantAvatarImage';
 import { useProjectLabels } from '../../hooks/useProjectLabels';
 import { Button } from '../ui/Button';
-import { Eye, Loader2, Square } from 'lucide-react';
+import { Eye, History, Loader2, Square } from 'lucide-react';
 import {
     detectPreviewPresetForProject,
     PreviewPreset,
@@ -34,9 +34,14 @@ interface PreviewServerInfo {
     url: string;
 }
 
-export function Board() {
+interface BoardProps {
+    currentProjectId: string;
+    onOpenHistory: () => void;
+}
+
+export function Board({ currentProjectId, onOpenHistory }: BoardProps) {
     const { stories, tasks, sprints, updateTaskStatus, loading, isTaskBlocked, getTaskBlockers } = useScrum();
-    const { projects, currentProjectId } = useWorkspace();
+    const { projects } = useWorkspace();
     const { formatSprintLabel } = useProjectLabels();
     const [teamRoles, setTeamRoles] = useState<TeamRoleSetting[]>([]);
     const [previewPreset, setPreviewPreset] = useState<PreviewPreset | null>(null);
@@ -267,6 +272,10 @@ export function Board() {
         }
         return previewPreset.kind === 'static' ? 'index.html を直接開きます' : '開発サーバーを起動します';
     }, [isPreviewLoading, isStoppingPreview, previewInfo, previewPreset, projectPath]);
+    const previewButtonTitle = hasRunningRootPreview
+        ? `停止: ${previewInfo?.url ?? ''}`
+        : rootPreviewSubtitle;
+    const isPreviewButtonBusy = hasRunningRootPreview ? isStoppingPreview : isPreviewLoading;
 
     const handleOpenRootPreview = useCallback(async () => {
         if (!projectPath) {
@@ -343,17 +352,17 @@ export function Board() {
     if (loading) {
         return (
             <div className="flex items-center justify-center p-8 h-full min-h-[50vh]">
-                <div className="text-gray-500">データを読み込み中...</div>
+                <div className="text-slate-500">データを読み込み中...</div>
             </div>
         );
     }
 
     if (!activeSprint) {
         return (
-            <div className="p-6 bg-gray-100 h-full flex flex-col">
-                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">アクティブなスプリントがありません</h3>
-                    <p className="text-sm text-gray-500 max-w-sm mb-6">
+            <div className="flex h-full flex-col bg-slate-100 p-6">
+                <div className="flex flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-12 text-center">
+                    <h3 className="mb-2 text-lg font-medium text-slate-900">アクティブなスプリントがありません</h3>
+                    <p className="mb-6 max-w-sm text-sm text-slate-500">
                         バックログ画面から次のスプリントを計画し、開始してください。
                     </p>
                 </div>
@@ -362,87 +371,61 @@ export function Board() {
     }
     
     return (
-        <div className="p-6 bg-gray-100 h-full flex flex-col">
-            <div className="mb-6 flex justify-between items-center">
+        <div className="flex h-full flex-col bg-slate-100 p-6">
+            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">スプリントボード</h1>
-                    <p className="mt-1 text-sm font-semibold text-slate-500">
-                        {formatSprintLabel(activeSprint)}
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <Button
-                        type="button"
-                        size="md"
-                        variant="ghost"
-                        onClick={() => void handleOpenRootPreview()}
-                        disabled={isPreviewLoading}
-                        title={
-                            !projectPath
-                                ? 'ローカルパス未設定のため動作確認を開始できません'
-                                : previewPreset
-                                  ? hasRunningRootPreview
-                                    ? '現在起動中の動作確認を再表示します'
-                                    : '現在のプロジェクトルートで動作確認を開きます'
-                                  : 'このプロジェクトは現在の簡易動作確認に未対応です'
-                        }
-                        className={`h-auto min-h-[56px] rounded-2xl border px-3.5 py-2.5 focus:ring-sky-400 ${
-                            isRootPreviewReady
-                                ? 'border-sky-200 bg-white text-slate-900 shadow-sm hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-50/70 hover:shadow-md'
-                                : 'border-slate-200 bg-slate-50/85 text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-100'
-                        }`}
-                    >
-                        <span
-                            className={`mr-3 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                                isRootPreviewReady
-                                    ? 'bg-sky-100 text-sky-700'
-                                    : 'bg-slate-200 text-slate-500'
-                            }`}
-                        >
-                            {isPreviewLoading ? (
-                                <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                                <Eye size={16} />
-                            )}
-                        </span>
-                        <span className="flex min-w-0 flex-col items-start text-left leading-tight">
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                                Project Root
-                            </span>
-                            <span className="mt-0.5 text-sm font-semibold text-current">
-                                {hasRunningRootPreview ? '動作確認を再表示' : '動作確認'}
-                            </span>
-                            <span className="mt-0.5 max-w-[240px] truncate text-xs text-slate-500">
-                                {rootPreviewSubtitle}
-                            </span>
-                        </span>
-                    </Button>
-
-                    {hasRunningRootPreview && (
+                    <h1 className="text-2xl font-bold text-slate-900">スプリントボード</h1>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-500">
+                            {formatSprintLabel(activeSprint)}
+                        </p>
                         <Button
                             type="button"
                             size="sm"
-                            variant="ghost"
-                            onClick={() => void handleStopRootPreview()}
-                            disabled={isStoppingPreview}
-                            title="現在起動中のルート動作確認を停止します"
-                            className="h-11 rounded-2xl border border-rose-200 bg-white px-3 text-rose-700 shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800 focus:ring-rose-300"
+                            variant="secondary"
+                            onClick={onOpenHistory}
+                            className="border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                            title="スプリント履歴を表示"
                         >
-                            {isStoppingPreview ? (
-                                <Loader2 size={15} className="mr-1.5 animate-spin" />
-                            ) : (
-                                <Square size={15} className="mr-1.5" />
-                            )}
-                            停止
+                            <History size={14} className="mr-1.5" />
+                            履歴
                         </Button>
-                    )}
+                    </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:justify-end">
+                    <Button
+                        type="button"
+                        size="md"
+                        variant="secondary"
+                        onClick={() =>
+                            void (hasRunningRootPreview ? handleStopRootPreview() : handleOpenRootPreview())
+                        }
+                        disabled={isPreviewButtonBusy}
+                        title={previewButtonTitle}
+                        className={`rounded-xl border ${
+                            hasRunningRootPreview
+                                ? 'border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800'
+                                : isRootPreviewReady
+                                  ? 'border-blue-200 bg-white text-blue-700 hover:bg-blue-50'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                    >
+                        {isPreviewButtonBusy ? (
+                            <Loader2 size={15} className="mr-1.5 animate-spin" />
+                        ) : hasRunningRootPreview ? (
+                            <Square size={15} className="mr-1.5" />
+                        ) : (
+                            <Eye size={15} className="mr-1.5" />
+                        )}
+                        {hasRunningRootPreview ? '停止' : '動作確認'}
+                    </Button>
                 </div>
             </div>
 
             {activeStories.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">タスクがありません</h3>
-                    <p className="text-sm text-gray-500 max-w-sm mb-6">
+                <div className="flex flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-12 text-center">
+                    <h3 className="mb-2 text-lg font-medium text-slate-900">タスクがありません</h3>
+                    <p className="mb-6 max-w-sm text-sm text-slate-500">
                         このスプリントにはタスクが割り当てられていません。バックログから追加してください。
                     </p>
                 </div>

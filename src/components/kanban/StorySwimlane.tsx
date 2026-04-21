@@ -3,6 +3,7 @@ import { Story, Task, TeamRoleSetting } from '../../types';
 import { StatusColumn } from './StatusColumn';
 import { Lightbulb, Plus, MoreVertical } from 'lucide-react';
 import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
 import { TaskFormModal, TaskFormData } from '../board/TaskFormModal';
 import { StoryFormModal, StoryFormData } from '../board/StoryFormModal';
 import { useFocus } from '../../context/PoAssistantFocusContext';
@@ -95,31 +96,25 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks, roleLoo
     }, [tasks]);
 
     return (
-        <div className="bg-white border text-left border-gray-200 rounded-lg shadow-sm mb-6 overflow-hidden">
+        <div className="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm">
             {/* Story Header */}
-            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-start group">
+            <div className="group flex items-start justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
                 <div className="flex-1 pr-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                         <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-600">
                             {formatStoryLabel(story.sequence_number)}
                         </span>
-                        <h2 className="text-lg font-semibold text-gray-900">{story.title}</h2>
-                        <span className={`text-xs px-1.5 py-0.5 rounded border font-medium shrink-0 ${
-                            (story.priority ?? 3) <= 1 ? 'bg-red-100 text-red-700 border-red-200' :
-                            story.priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
-                            story.priority === 3 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
-                            story.priority === 4 ? 'bg-blue-100 text-blue-600 border-blue-200' :
-                            'bg-gray-100 text-gray-500 border-gray-200'
-                        }`}>P{story.priority ?? 3}</span>
+                        <h2 className="truncate text-lg font-semibold text-slate-900" title={story.title}>
+                            {story.title}
+                        </h2>
+                        <Badge variant="priority" level={story.priority ?? 3} className="shrink-0" />
                     </div>
                     {story.description && (
-                        <p className="text-sm text-gray-500 mt-1">{story.description}</p>
+                        <p className="mt-1 text-sm text-slate-500">{story.description}</p>
                     )}
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                        {story.status === 'Ready' ? '準備完了' : story.status === 'In Progress' ? '進行中' : story.status === 'Done' ? '完了' : story.status}
-                    </span>
+                    <Badge variant="status" status={story.status} />
                     <Button
                         size="sm"
                         variant="secondary"
@@ -136,7 +131,7 @@ export const StorySwimlane = memo(function StorySwimlane({ story, tasks, roleLoo
                     </Button>
                     <button
                         onClick={() => setIsEditStoryModalOpen(true)}
-                        className="p-1.5 text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 hover:bg-gray-200 rounded transition-all"
+                        className="rounded-md p-1.5 text-slate-400 opacity-0 transition-all hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"
                     >
                         <MoreVertical size={16} />
                     </button>

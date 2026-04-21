@@ -27,6 +27,7 @@ import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
 import { Modal } from '../ui/Modal';
 import { Textarea } from '../ui/Textarea';
 import { Avatar } from '../ai/Avatar';
@@ -57,14 +58,6 @@ type MergeResult =
     | { type: 'success' }
     | { type: 'conflict'; conflicting_files: string[] }
     | { type: 'error'; message: string };
-
-function getPriorityBadgeClass(priority: number): string {
-    if (priority <= 1) return 'bg-red-100 text-red-700 border-red-200';
-    if (priority === 2) return 'bg-orange-100 text-orange-700 border-orange-200';
-    if (priority === 3) return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    if (priority === 4) return 'bg-blue-100 text-blue-600 border-blue-200';
-    return 'bg-gray-100 text-gray-500 border-gray-200';
-}
 
 function stopInteractiveEvent(event: React.SyntheticEvent) {
     event.stopPropagation();
@@ -233,6 +226,19 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
         transform: CSS.Transform.toString(transform),
         transition,
     };
+    const taskLabel = formatTaskLabel(task.sequence_number);
+    const previewButtonLabel = !previewPreset
+        ? '簡易プレビュー未対応'
+        : previewPreset.kind === 'static'
+          ? 'index.html を開く'
+          : previewInfo
+            ? 'プレビュー再起動'
+            : 'プレビュー起動';
+    const previewButtonTitle = !previewPreset
+        ? '現在の簡易プレビューは npm run dev と npm run serve のみ対応しています。'
+        : previewPreset.kind === 'static'
+          ? '静的サイトのため、ワークツリー内の index.html を直接開きます。'
+          : `使用コマンド: ${previewPreset.command}`;
 
     const focusTaskForPoAssistant = useCallback(() => {
         setFocus({
@@ -609,48 +615,35 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                 {...attributes}
                 {...listeners}
                 onClick={() => setIsEditModalOpen(true)}
-                className={`group relative mb-2 flex cursor-grab flex-col gap-2 rounded-md border p-3 shadow-sm transition-colors active:cursor-grabbing ${
+                className={`group relative mb-2 flex cursor-grab flex-col gap-2 rounded-xl border p-3 shadow-sm transition-colors active:cursor-grabbing ${
                     isDragging
                         ? 'border-blue-500 opacity-50'
                         : isReviewTask
                           ? 'border-amber-300 bg-amber-50/40 hover:border-amber-400'
-                          : blocked
-                            ? 'border-gray-200 bg-gray-50 hover:border-gray-300'
-                            : 'border-gray-200 bg-white hover:border-blue-300'
+                        : blocked
+                            ? 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                            : 'border-slate-200 bg-white hover:border-blue-300'
                 }`}
             >
                 <div className={`min-w-0 flex-1 pr-6 ${blocked && !isDragging ? 'opacity-60' : ''}`}>
-                    <div className="mb-1 flex items-center gap-1.5">
-                        <span
-                            className={`rounded border px-1.5 py-0.5 text-xs font-medium ${getPriorityBadgeClass(
-                                task.priority,
-                            )}`}
-                        >
-                            P{task.priority}
+                    <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        <Badge variant="priority" level={task.priority} />
+                        <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                            {taskLabel}
                         </span>
                         {blocked && (
                             <span
-                                className="flex items-center gap-0.5 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs text-amber-600"
+                                className="flex items-center gap-0.5 whitespace-nowrap rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs text-amber-600"
                                 title={`ブロック中: ${blockers.map((blocker) => blocker.title).join(', ')}`}
                             >
                                 <Lock size={10} />
                                 Blocked
                             </span>
                         )}
-                        {isReviewTask && (
-                            <span className="rounded border border-amber-200 bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
-                                Review
-                            </span>
-                        )}
                     </div>
-                    <h4 className="truncate text-sm font-medium text-gray-900" title={task.title}>
+                    <h4 className="truncate text-sm font-medium text-slate-900" title={task.title}>
                         {task.title}
                     </h4>
-                    <div className="mt-1">
-                        <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                            {formatTaskLabel(task.sequence_number)}
-                        </span>
-                    </div>
                     {assignedRoleName && assignedAvatar && (
                         <div className="mt-1.5 flex items-center gap-2">
                             <Avatar kind={assignedAvatar.kind} size="xs" imageSrc={assignedAvatarImage} />
@@ -661,7 +654,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                     )}
                     {task.description && (
                         <div
-                            className="relative mt-1 max-h-64 overflow-hidden prose prose-sm max-w-none prose-li:my-0 prose-p:leading-snug prose-slate text-xs text-gray-500"
+                            className="relative mt-1 max-h-64 overflow-hidden prose prose-sm max-w-none prose-li:my-0 prose-p:leading-snug prose-slate text-xs text-slate-500"
                             title="Click to edit and see full description"
                         >
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.description}</ReactMarkdown>
@@ -672,14 +665,18 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
 
                 {isReviewTask && (
                     <div
-                        className="mt-1 space-y-2 rounded-lg border border-amber-200 bg-white/85 p-2"
+                        className="mt-1 space-y-2 rounded-xl border border-amber-200 bg-white/85 p-2"
                         onClick={stopInteractiveEvent}
                         onPointerDown={stopInteractiveEvent}
                     >
                         {previewInfo && (
-                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs text-emerald-800">
-                                <span className="font-medium">プレビュー中: {previewInfo.url}</span>
-                                <div className="flex gap-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-600 shadow-sm">
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                                    <span className="shrink-0 font-medium text-slate-700">プレビュー中</span>
+                                    <span className="truncate text-slate-500">{previewInfo.url}</span>
+                                </div>
+                                <div className="flex shrink-0 gap-1.5">
                                     <Button
                                         type="button"
                                         size="sm"
@@ -707,33 +704,6 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                             </div>
                         )}
 
-                        {!previewInfo && (
-                            <div className="rounded-md border border-amber-100 bg-amber-50/70 px-2 py-2 text-xs text-amber-900">
-                                {previewPreset ? (
-                                    previewPreset.kind === 'command' ? (
-                                        <span>
-                                            使用コマンド:{' '}
-                                            <code className="font-mono">{previewPreset.command}</code>
-                                        </span>
-                                    ) : (
-                                        <span>
-                                            静的サイトのため、ワークツリー内の
-                                            <code className="mx-1 font-mono">index.html</code>
-                                            を直接開きます。
-                                        </span>
-                                    )
-                                ) : (
-                                    <span>
-                                        この技術スタックは簡易プレビュー未対応です。現在は
-                                        <code className="mx-1 font-mono">npm run dev</code>
-                                        と
-                                        <code className="mx-1 font-mono">npm run serve</code>
-                                        のみ対応しています。
-                                    </span>
-                                )}
-                            </div>
-                        )}
-
                         {hasConflict && (
                             <button
                                 type="button"
@@ -753,6 +723,8 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                                 type="button"
                                 size="sm"
                                 variant="secondary"
+                                className="w-full"
+                                title={previewButtonTitle}
                                 disabled={isPreviewLoading || isMerging || !previewPreset}
                                 onClick={() => void handleStartPreview()}
                             >
@@ -761,16 +733,13 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                                 ) : (
                                     <Eye size={14} className="mr-1" />
                                 )}
-                                {previewPreset?.kind === 'static'
-                                    ? 'index.html を開く'
-                                    : previewInfo
-                                      ? 'プレビュー再起動'
-                                      : 'プレビュー起動'}
+                                {previewButtonLabel}
                             </Button>
                             <Button
                                 type="button"
                                 size="sm"
                                 variant="primary"
+                                className="w-full"
                                 disabled={isPreviewLoading || isMerging}
                                 onClick={() => void handleMerge()}
                             >
@@ -787,6 +756,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                             type="button"
                             size="sm"
                             variant="secondary"
+                            className="w-full !bg-white !text-blue-700 ring-1 ring-inset ring-blue-200 hover:!bg-blue-50 focus:!ring-blue-300"
                             disabled={
                                 isPreviewLoading ||
                                 isMerging ||
@@ -811,7 +781,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                         onClick={handleLaunchAgent}
                         onPointerDown={stopInteractiveEvent}
                         disabled={isLaunchDisabled}
-                        className="rounded p-1 text-blue-500 transition-colors hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-300"
+                        className="rounded-md p-1 text-blue-500 transition-colors hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent disabled:hover:text-slate-300"
                         title={
                             blocked
                                 ? 'ブロック中のタスクは実行できません（依存タスクを先に完了してください）'
@@ -832,7 +802,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                             focusTaskForPoAssistant();
                         }}
                         onPointerDown={stopInteractiveEvent}
-                        className="rounded bg-amber-50 p-1 text-amber-600 ring-1 ring-amber-200 transition-colors hover:bg-amber-500 hover:text-white hover:ring-amber-500"
+                        className="rounded-md bg-amber-50 p-1 text-amber-600 ring-1 ring-amber-200 transition-colors hover:bg-amber-500 hover:text-white hover:ring-amber-500"
                         title={blocked ? 'ブロック中でも POアシスタントに相談できます' : 'POアシスタントに相談'}
                     >
                         <Lightbulb size={16} />
@@ -843,7 +813,7 @@ export const TaskCard = memo(function TaskCard({ task, availableTasks = [], role
                             setIsEditModalOpen(true);
                         }}
                         onPointerDown={stopInteractiveEvent}
-                        className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                        className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
                     >
                         <MoreVertical size={16} />
                     </button>
